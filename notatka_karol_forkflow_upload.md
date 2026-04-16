@@ -20,3 +20,11 @@ kod źródłowy -> idf.py build -> plik.bin -> wysłanie PUT do uota.kaleszynski
 
 WYDAJE SIĘ DUŻO ALE TAK NIE JEST
 realnie to będzię wymagąło do użytkownika tylko zbudowania i wysłania binarki, reszta zrobi się sama jak się dobrze skonfiguruje (:
+
+### podgląð serial portu 
+
+dodajemy przekierowanie syslogów pi UDP na serwer, łączymy się tailscalem z serwerem i wszystko ładnie widzimy, 
+
+serwer oparty na `Rsyslog` albo `socat`
+
+widać wszystkie wiadomości w jednym pliku -> super bo nie trzeba tego jakoś łączyć czy coś 
