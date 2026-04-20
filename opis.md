@@ -29,14 +29,15 @@ Danych jest P poetów. Poeci dobierają się w kółka o wielkości K. Po zebran
 | `my_clock` | int | Zegar Lamporta |
 | `co_przynoszę` | bool[3] | Rola w bieżącym kółku: `[sęp, alkohol, zagrycha]`; dokładnie jedno `true` po uzgodnieniu |
 | `co_przynosiłem` | int[3] | Historia ról: `[sęp, alkohol, zagrycha]`; zliczenie udziałów w kolejnych kółkach; indeksy: `0=sęp, 1=alkohol, 2=zagrycha`; inicjalizowane na `[0, 0, 0]` |
-| `obrażony_na_koło` | bool[] | Tablica długości `round_up(P/K)`; czy poeta odmawia udziału w  kółkach; wartości zmieniają się losowo |
+| `obrażony_na_koło` | bool[] | Tablica długości `round_up(P/K)`; czy poeta odmawia udziału w kółkach; wartości zmieniają się losowo |
 | `my_round_id` | (int, int) | ID aktualnego kółka = `(my_ID, my_clock)` w chwili wysłania REQUEST; gwarantuje unikalność |
 | `organizing` | bool | Czy jestem aktualnie organizatorem kółka |
 | `in_round` | bool | Czy jestem w aktywnym kółku |
-| `request_queue` | lista | Kolejka odebranych REQUEST-ów, sortowana po `(ts, ID)` |
 | `pending_replies` | int | Liczba oczekiwanych REPLY na mój REQUEST |
 | `collected_oks` | lista | Poeci którzy odpowiedzieli `OK` na mój REQUEST |
-| `deferred_requests` | lista | REQUEST-y odłożone do późniejszej odpowiedzi (gdy sam jestem w REQUESTING z wyższym priorytetem) |
+| `already_responded_to_any_invite` | bool | Czy już zaakceptowałem jakieś zaproszenie (używane w ODPOCZYNEK do odrzucania kolejnych INVITE) |
+| `participants` | lista | Uczestnicy bieżącego kółka (bez organizatora); używana w stanach WYSYLAM_ZAPRO, POWITANIA, IMPREZZAAA |
+| `deficyty_uczestnikow` | map: ID na int[3] | Zebrane wektory deficytów od wszystkich uczestników kółka (w stanie POWITANIA) |
 
 ---
 
@@ -45,12 +46,13 @@ Danych jest P poetów. Poeci dobierają się w kółka o wielkości K. Po zebran
 | Wiadomość | Pola | Opis |
 |---|---|---|
 | `REQUEST(ts, from)` | znacznik czasu Lamporta, ID nadawcy | Ogłoszenie chęci organizacji kółka |
-| `REPLY(ts, from, status)` | znacznik czasu, ID, status in {OK, BUSY, OBRAŻONY} | Odpowiedź na REQUEST |
+| `REPLY(ts, from, status, round_id?)` | znacznik czasu, ID, status należy do {OK, BUSY, OBRAŻONY}; jeśli BUSY to zawiera round_id kółka w którym nadawca uczestniczy | Odpowiedź na REQUEST |
 | `INVITE(round_id, from)` | ID kółka, ID organizatora | Zaproszenie do konkretnego kółka |
-| `ACCEPT(round_id, from, co_przynosiłem[])` | ID kółka, ID akceptującego, historia ról | Potwierdzenie udziału + dane do przydziału ról |
+| `IM_INTERESTED(round_id, from)` | ID kółka, ID akceptującego | Potwierdzenie chęci udziału |
+| `WELCOME(round_id, participants[])` | ID kółka, lista uczestników | Potwierdzenie zapisu do kółka; wysyłane przez organizatora do wszystkich przyjętych |
+| `YOURE_NOT_IN(round_id)` | ID kółka | Odmowa zapisu dla członków którzy zaakceptowali ale się już nie zmieścili do kółka |
 | `DECLINE(round_id, from)` | ID kółka, ID odmawiającego | Odmowa (obrażony lub zajęty) |
-| `ASSIGN(round_id, przydziały[])` | ID kółka, tablica `{poet_id → rola}` | Organizator rozgłasza kto co przynosi |
-| `ACK_ASSIGN(round_id, from)` | ID kółka, ID potwierdzającego | Potwierdzenie odebrania przydziału |
+| `HELLO(round_id, from, deficyty[])` | ID kółka, ID nadawcy, tablica `int[3]` | Każdy uczestnik wysyła pozostałym swój wektor `co_przynosiłem[]` (historię ról) |
 | `RELEASE(round_id, from)` | ID kółka, ID nadawcy | Koniec libacji, zwolnienie zasobu |
 
 ---
@@ -61,8 +63,9 @@ Danych jest P poetów. Poeci dobierają się w kółka o wielkości K. Po zebran
 |---|---|
 | **ODPOCZYNEK** | Stan początkowy; poeta odpoczywa po libacji przez losowy czas |
 | **REQUESTING** | Naszło mnie organizować libację; rozsyłam REQUEST i czekam na odpowiedzi |
-| **WYSYLAM_ZAPRO** | Mam sekcję krytyczną; zapraszam K-1 chętnych poetów |
-| **KTO_CO_PRZYNOSI** | Jestem w kółku; ustalamy kto co przynosi |
+| **WYSYLAM_ZAPRO** | Zebrałem odpowiedzi na REQUEST; zapraszam chętnych poetów i kompletuję skład kółka |
+| **WAITING_FOR_WELCOME** | Czekam aż organizator potwierdzi mi że dostałem się do kółka |
+| **POWITANIA** | Jestem w kółku; wymieniam deficyty z pozostałymi uczestnikami i ustalam swoją rolę |
 | **IMPREZZAAA** | Libacja trwa |
 | **OBRAZILEM_SIE** | Losowo stwierdziłem że nie chcę brać udziału w kółku przez jakiś czas |
 
@@ -80,7 +83,7 @@ Po upłynięciu czasu `oczekiwalności` od końca ostatniej libacji (lub startu 
 my_clock++
 my_round_id = (my_ID, my_clock)
 Rozgłoś REQUEST(my_clock, my_ID) do wszystkich poetów
-pending_replies = liczba poetów do których wysłałem REQUEST 
+pending_replies = P - 1   // liczba pozostałych poetów
 collected_oks   = []
 Przejdź do stanu REQUESTING
 ```
@@ -93,29 +96,23 @@ Przejdź do stanu REQUESTING
 my_clock = max(my_clock, ts) + 1
 
 if stan == OBRAZILEM_SIE:
-     REPLY(my_clock, my_ID, OBRAŻONY)
+    odpowiedz REPLY(my_clock, my_ID, OBRAŻONY)
+    return
 
-if stan  {IMPREZZAAA, WYSYLAM_ZAPRO, KTO_CO_PRZYNOSI}:
-     REPLY(my_clock, my_ID, BUSY)
-
-if stan == REQUESTING:
-    // Ricart-Agrawala
-    if (ts < mój_ts) lub (ts == mój_ts i from < my_ID):
-        // from ma wyższy priorytet 
-        odpowiedz REPLY(my_clock, my_ID, OK)
-    w przeciwnym razie:
-        // ja mam wyższy priorytet 
-        dodaj (ts, from) do deferred_requests[]
+if stan in {IMPREZZAAA, WYSYLAM_ZAPRO, POWITANIA, WAITING_FOR_WELCOME, REQUESTING}:
+    odpowiedz REPLY(my_clock, my_ID, BUSY, my_round_id)
+    return
 
 if stan == ODPOCZYNEK:
     odpowiedz REPLY(my_clock, my_ID, OK)
+    return
 ```
 
- Odpowiedź `OK` oznacza wyłącznie „nie blokuję cię w tworzeniu kółka" - nie jest jeszcze deklaracją uczestnictwa.
+**Uwaga:** Odpowiedź `OK` oznacza wyłącznie „jestem dostępny, możesz mnie zaprosić do kółka" - nie jest jeszcze deklaracją uczestnictwa. Odpowiedź `BUSY` informuje, że poeta jest zajęty organizacją lub uczestnictwem w kółku o podanym `round_id`.
 
 ---
 
-### Obsługa odebranego REPLY(ts, from, status) - będąc w REQUESTING
+### Obsługa odebranego REPLY(ts, from, status, round_id) - będąc w REQUESTING
 
 ```
 my_clock = max(my_clock, ts) + 1
@@ -125,7 +122,10 @@ if status == OK:
     collected_oks.append(from)
 
 if pending_replies == 0:
-    // Zebrałem wszystkie odpowiedzi - wchodzę w sekcję krytyczną
+    // Zebrałem wszystkie odpowiedzi
+    organizing = true
+    in_round = true
+    participants = []
     Przejdź do WYSYLAM_ZAPRO
 ```
 
@@ -133,24 +133,27 @@ if pending_replies == 0:
 
 ### Stan WYSYLAM_ZAPRO
 
-Organizator ma wyłączne prawo do ogłaszania kółka (w sensie Ricart-Agrawala). Zaprasza poetów spośród tych, którzy odpowiedzieli `OK`:
+Organizator zaprasza poetów spośród tych, którzy odpowiedzieli `OK`:
 
 ```
 kandydaci = collected_oks
 Rozgłoś INVITE(my_round_id, my_ID) do wszystkich kandydatów
 
-dopóki nie zebrano K-1 ACCEPT-ów i są jeszcze kandydaci:
-    na ACCEPT(round_id, from, co_przynosiłem[]):
-        dodaj (from, co_przynosiłem[]) do składu_kółka
+dopóki nie zebrano K-1 IM_INTERESTED-ów i są jeszcze kandydaci:
+    na IM_INTERESTED(round_id, from):
+        dodaj (from) do participants[]
     na DECLINE(round_id, from):
-        usuń from z kandydatów
+        usuń (from) z kandydatów
 
-if |skład_kółka| >= K-1:
-    // Mam wszystkich -> negocjacja ról
-    Przejdź do KTO_CO_PRZYNOSI
+jeśli |participants| == K-1:
+    // Komplet uczestników -> potwierdzenia
+    Wyślij WELCOME(my_round_id, participants ∪ {my_ID}) do każdego w participants[]
+    deficyty_uczestnikow = {}
+    Przejdź do POWITANIA
 w przeciwnym razie:
-    // Za mało chętnych -> kółko nie dochodzi do skutku
-    Zwolnij sekcję krytyczną (wyślij odłożone REPLY-e, patrz: RELEASE)
+    // Za mało chętnych → kółko nie dochodzi do skutku
+    in_round   = false
+    organizing = false
     Przejdź do ODPOCZYNEK
 ```
 
@@ -160,32 +163,75 @@ w przeciwnym razie:
 
 ```
 if in_round == false i stan != OBRAZILEM_SIE:
-    in_round    = true
-    my_round_id = round_id
-    odpowiedz ACCEPT(round_id, my_ID, co_przynosiłem[])
-    Przejdź do KTO_CO_PRZYNOSI
+    // Akceptuj tylko PIERWSZE otrzymane zaproszenie
+    if !already_responded_to_any_invite:
+        already_responded_to_any_invite = true
+        in_round = true
+        my_round_id = round_id
+        odpowiedz IM_INTERESTED(round_id, my_ID)
+        Przejdź do WAITING_FOR_WELCOME
+    else:
+        // Już zaakceptowałem inne zaproszenie
+        odpowiedz DECLINE(round_id, my_ID)
 w przeciwnym razie:
     odpowiedz DECLINE(round_id, my_ID)
 ```
 
 ---
 
-### Stan KTO_CO_PRZYNOSI
+### Stan WAITING_FOR_WELCOME
 
-#### Przydział ról 
-
-Organizator posiada wektory `co_przynosiłem[]` wszystkich K uczestników (zebrane z wiadomości `ACCEPT` + własne dane). Stosuje **deficit-based scheduling**:
-
-**Metryka deficytu** dla poety `i` i roli `r`:
+Zaproszony poeta czeka po wysłaniu IM_INTERESTED na potwierdzenie lub odrzucenie przez organizatora. W tym czasie traktuje wszelkie nowe INVITE jak będąc zajętym (`in_round == true` powoduje DECLINE).
 
 ```
-total_i      = sęp_i + alkohol_i + zagrycha_i
-deficit(i,r) = (1/3) * total_i  -  co_przynosiłem[i][r]
+na WELCOME(round_id, participants[]):
+    deficyty_uczestnikow = {}
+    Rozgłoś HELLO(my_round_id, my_ID, co_przynosiłem[]) do wszystkich w participants[] \ {my_ID}
+    Przejdź do POWITANIA
+
+na YOURE_NOT_IN(round_id):
+    in_round = false
+    already_responded_to_any_invite = false
+    Przejdź do ODPOCZYNEK
+```
+
+---
+
+### Stan POWITANIA
+
+Każdy uczestnik (w tym organizator) rozsyła swój wektor historii ról do pozostałych, zbiera ich wektory, po czym **samodzielnie** oblicza przydzieloną sobie rolę.
+
+#### Wymiana deficytów
+
+**Przy wejściu do stanu** (dotyczy zarówno organizatora, jak i uczestników po odebraniu WELCOME):
+
+```
+Rozgłoś HELLO(my_round_id, my_ID, co_przynosiłem[]) do wszystkich pozostałych w kółku
+deficyty_uczestnikow[my_ID] = co_przynosiłem[]   // zapisz własne dane
+```
+
+**Obsługa odebranego HELLO(round_id, from, deficyty[]):**
+
+```
+deficyty_uczestnikow[from] = deficyty[]
+
+jeśli |deficyty_uczestnikow| == K:   // zebrano dane od wszystkich K uczestników
+    co_przynoszę = oblicz_moją_rolę(deficyty_uczestnikow, my_ID)
+    Przejdź do IMPREZZAAA
+```
+
+**Metryka deficytu**
+
+Dla poety `i` i roli `r` deficyt wyraża, o ile mniej niż „sprawiedliwy udział" dana rola była przez poetę pełniona:
+
+```
+total_i      = co_przynosiłem[i][0] + co_przynosiłem[i][1] + co_przynosiłem[i][2]
+deficit(i,r) = (1/3) * total_i  −  co_przynosiłem[i][r]
 ```
 
 Im większy deficyt, tym bardziej poeta „zalega" z daną rolą.
 
-**Liczba miejsc na każdą rolę** (konwencja że ma być róna ilość każdej roli w kole, anie że wystarczy jedna osoba z piciem i jedna z zagrychą):
+**Liczba miejsc na każdą rolę** (konwencja że ma być równa ilość każdej roli w kole):
 
 | K mod 3 | sęp | alkohol | zagrycha |
 |---|---|---|---|
@@ -196,41 +242,27 @@ Im większy deficyt, tym bardziej poeta „zalega" z daną rolą.
 **Procedura przydziału:**
 
 ```
-Wejście:  skład[] - K poetów z ich co_przynosiłem[]
-Wyjście:  przydziały{poet_id → rola}
+Wejście:  deficyty_uczestnikow - mapa ID -> co_przynosiłem[] dla wszystkich K uczestników
+Wejście:  my_ID
+Wyjście:  rola przypisana procesowi my_ID
 
-nieprzydzieleni = skład[]
+nieprzydzieleni = lista wszystkich K ID uczestników
 
-dla każdej roli r w kolejności [sęp, alkohol, zagrycha]:
-    posortuj nieprzydzieleni malejąco po deficit(i, r)
-    przydziel rolę r pierwszym miejsca_na_rolę[r] poetom z listy
+dla każdej roli r w kolejności [sęp(0), alkohol(1), zagrycha(2)]:
+    posortuj nieprzydzieleni malejąco po deficit(i, r),
+        przy remisach rosnąco po ID (gwarantuje identyczny wynik u wszystkich)
+    przydziel rolę r pierwszym miejsca_na_rolę[r] poetom z posortowanej listy
     usuń przydzielonych z nieprzydzieleni
+
+zwróć rolę przypisaną my_ID
 ```
 
-**Dzięki założeniu o równości ról, i zastosowania algorytmu:** po dostatecznie wielu libacjach dla każdego poety `i`:
+Ponieważ każdy proces dysponuje identycznym zestawem danych `deficyty_uczestnikow` i stosuje ten sam deterministyczny algorytm, każdy niezależnie dochodzi do tego samego przydziału - **bez konieczności wymiany dodatkowych wiadomości**.
+
+**Dzięki założeniu o równości ról i zastosowania algorytmu:** po dostatecznie wielu libacjach dla każdego poety `i`:
 
 ```
 |co_przynosiłem[i][r] / total_i  −  1/3|  zmierza do  0
-```
-
-#### Przebieg stanu
-
-**Organizator:**
-
-```
-przydziały = oblicz_przydział(skład_kółka ∪ {my_ID})
-Rozgłoś ASSIGN(my_round_id, przydziały) do wszystkich w kółku
-Czekaj na ACK_ASSIGN od każdego członka kółka
-Po zebraniu wszystkich ACK → Przejdź do IMPREZZAAA
-```
-
-**Uczestnik:**
-
-```
-Na odebranie ASSIGN(round_id, przydziały):
-    co_przynoszę = przydziały[my_ID]   // dokładnie jedno true
-    odpowiedz ACK_ASSIGN(round_id, my_ID)
-    Przejdź do IMPREZZAAA
 ```
 
 ---
@@ -238,22 +270,17 @@ Na odebranie ASSIGN(round_id, przydziały):
 ### Stan IMPREZZAAA
 
 ```
- Libacja trwa przez losowy czas
+Libacja trwa przez losowy czas
 Po zakończeniu:
-    r                      = indeks roli gdzie co_przynoszę[r] == true
+    r = co_przynoszę
     co_przynosiłem[r]++
-    co_przynoszę - wyzerować na przyszłość
+    co_przynoszę = -1
 
     Wyślij RELEASE(my_round_id, my_ID) do wszystkich w kółku
 
-    // Zwolnienie sekcji krytycznej R-A 
-    if organizing == true:
-        dla każdego (ts, from) w deferred_requests[]: //chodzi o to że dajemy znać tym co ich blokujemy że już nie bolokujemy
-            wyślij REPLY(my_clock, my_ID, OK) do from
-        deferred_requests = []
-        organizing        = false
-
+    organizing = false
     in_round = false
+    already_responded_to_any_invite = false
     Przejdź do ODPOCZYNEK
 ```
 
@@ -262,12 +289,12 @@ Po zakończeniu:
 ### Stan OBRAZILEM_SIE
 
 ```
- Wejście: losowo z ODPOCZYNEK, na losowy czas
- W tym czasie:
+Wejście: losowo z ODPOCZYNEK, na losowy czas
+W tym czasie:
   - na REQUEST odpowiadaj REPLY(..., OBRAŻONY)
-   - na INVITE  odpowiadaj DECLINE(...)
- Po upływie czasu:
-Przejdź do ODPOCZYNEK
+  - na INVITE  odpowiadaj DECLINE(...)
+Po upływie czasu:
+  Przejdź do ODPOCZYNEK
 ```
 
 ---
