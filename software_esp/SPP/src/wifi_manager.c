@@ -5,10 +5,12 @@
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/sockets.h"
 
 #include "secrets.h" // Dla WIFI_SSID i WIFI_PASS
 #include "mac_manager.h" // Dla load_and_set_mac_from_nvs
 #include "config.h"      // Dla SET_MAC
+
 
 static const char *TAG = "WIFI_MANAGER";
 

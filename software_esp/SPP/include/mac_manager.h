@@ -3,8 +3,7 @@
 
 #include <stdint.h>
 
-extern int flaga;
-
+extern char my_id[16];
 /**
  * @brief Jednorazowa funkcja np. na produkcję do zapisywania MAC
  * @param mac Wskaźnik do tablicy 6 bajtów z adresem MAC
