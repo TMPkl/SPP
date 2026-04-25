@@ -9,6 +9,7 @@
 #include "nvs.h"
 #include "driver/gpio.h"
 #include "mac_manager.h"
+#include "secrets.h"
 
 #define BLINK_GPIO 48
 
@@ -44,8 +45,8 @@ void app_main(void) {
     
      wifi_config_t wifi_config = {
          .sta = {
-             .ssid = "karol",
-             .password = "511585031",
+             .ssid = WIFI_SSID,
+             .password = WIFI_PASS,
          },
      };
     
