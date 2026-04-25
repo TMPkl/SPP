@@ -2,71 +2,73 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_wifi.h"
-#include "esp_mac.h"
-#include "esp_event.h"
-#include "nvs_flash.h"
-#include "nvs.h"
 #include "driver/gpio.h"
+#include "lwip/err.h"
+#include "lwip/sockets.h"
+#include "lwip/sys.h"
+#include <lwip/netdb.h>
+
 #include "mac_manager.h"
 #include "secrets.h"
+#include "config.h"
+#include "wifi_manager.h"
+
 
 #define BLINK_GPIO 48
 
 int flaga = 0;
 
-void app_main(void) {
-    printf("Starting WiFi with unique MAC...\n");
-    // Inicjalizacja NVS (wymagane dla WiFi)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        nvs_flash_init();
+// Uwaga: Funkcja została napisana jako Task, żeby nie blokowała głównej pętli
+void tcp_client_task(void *pvParameters) {
+    // UWAGA: ZMIEŃ NA IP SWOJEGO KOMPUTERA/SERWERA W SIECI LOKALNEJ
+    char host_ip[] = DEBUG_IP_ADDRESS; // IP Twojego serwera Go
+    
+    struct sockaddr_in dest_addr;
+    dest_addr.sin_addr.s_addr = inet_addr(host_ip);
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(DEBUG_SERIAL_REDIRECT_PORT); // Port Twojego serwera Go
+
+    while (1) {
+        // Czekaj 5 sekund pomiędzy pingami
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        
+        int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+        if (sock < 0) {
+            printf("Nie udalo sie utworzyc socketu: errno %d\n", errno);
+            continue;
+        }
+
+        int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(struct sockaddr_in));
+        if (err != 0) {
+            printf("Socket nie polaczyl sie (serwer byc moze nie dziala): errno %d\n", errno);
+            close(sock);
+            continue;
+        }
+        printf("Polaczono z serwerem!\n");
+
+        // 1. Serwer Go wymaga najpierw identyfikatora zakonczonego nowa linia \n
+        const char *id_payload = "ESP_TEST_01\n";
+        send(sock, id_payload, strlen(id_payload), 0);
+
+        // 2. Po czym wysyłamy nasze właściwe wiadomości (pingi)
+        const char *payload = "Ping - dzialam poprawnie!\n";
+        send(sock, payload, strlen(payload), 0);
+
+        // Zamedłknij jeśli chcemy rozłączyć od razu. Pętla będzie wznawiać.
+        close(sock);
     }
     
-    // Inicjalizacja event loop
-    esp_event_loop_create_default();
+    vTaskDelete(NULL);
+}
+
+void app_main(void) {
+    // Inicjalizacja Wi-Fi przy użyciu dedykowanego menedżera
+    wifi_init_sta();
     
-    // Inicjalizacja WiFi
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_wifi_init(&cfg);
+    printf("WiFi initialized.\n");
     
-    // (Opcjonalne, tylko na produkcji) - Przykładowy zapis adresu do NVS
-    // Normalnie uruchamiasz to tylko raz, na etapie flashowania urządzenia.
-    
-    uint8_t factory_mac[6] = {0xA0, 0x11, 0x84, 0xAA, 0x2C, 0x03};
-    save_mac_to_nvs(factory_mac);
-    
-    // Ustaw unikalny MAC z NVS (jeśli istnieje) PRZED esp_wifi_start()
-    load_and_set_mac_from_nvs();
-    
-    // Konfiguracja WiFi STA mode
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    
-     wifi_config_t wifi_config = {
-         .sta = {
-             .ssid = WIFI_SSID,
-             .password = WIFI_PASS,
-         },
-     };
-    
-     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-     esp_wifi_start();
-     esp_wifi_connect();
-    
-     printf("WiFi initialized with unique MAC\n");
-    
-    // Tutaj Twój kod dla "poets and poetry circles"
-    
-        gpio_reset_pin(BLINK_GPIO);
-    /* Set the GPIO as a push/pull output */
+    gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-
-    uint8_t mac[6];
-    
-    // Pobierz aktualnie ustawiony MAC interfejsu
-    esp_wifi_get_mac(WIFI_IF_STA, mac);
-
 
     while(1) {
         /* Blink off (output low) */
@@ -77,8 +79,5 @@ void app_main(void) {
         printf("Turning on the LED\n");
         gpio_set_level(BLINK_GPIO, 1);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
-            printf("Current MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        printf("Flaga: %d\n", flaga);
     }
-    }
+}
