@@ -23,7 +23,11 @@
 
 #define BLINK_GPIO 48
 
-
+// Callback funkcja do odbierania wiadomości
+static void recv_cb(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len) {
+    Message *msg = (Message *)data;
+    ESP_LOGI(my_id, "Received message from peer: id=%d, value=%d", msg->id, msg->value);
+}
 
 void app_main(void) {
     // Inicjalizacja Wi-Fi przy użyciu dedykowanego menedżera
@@ -57,7 +61,8 @@ void app_main(void) {
     uint8_t peer_addr[6] = {0xA0, 0x11, 0x84, 0xAA, 0x2C, 0x01}; // adress jedynkii
 
      esp_now_init();
-
+    // Rejestracja callback do odbierania wiadomości
+    esp_now_register_recv_cb(recv_cb);
     esp_now_peer_info_t peerInfo;
 
     
@@ -81,15 +86,6 @@ void app_main(void) {
         /* Blink on (output high) */
         ESP_LOGI(my_id, "Turning on the LED");
         gpio_set_level(BLINK_GPIO, 1);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-        // wysyłanie wiadomości do peerów
-        msg.id = 1;
-        msg.value = esp_random() % 100;
-        esp_now_send(peer_addr, (uint8_t *)&msg, sizeof(msg));
-
-        ESP_LOGI(my_id, "Sent message to peer: id=%d, value=%d", msg.id, msg.value);
-
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
