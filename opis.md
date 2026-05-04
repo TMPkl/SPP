@@ -15,7 +15,7 @@ Danych jest P poetów. Poeci dobierają się w kółka o wielkości K. Po zebran
 
 Do rozwiązania zadania wykorzystany zostanie **zmodyfikowany algorytm Lamporta**. Główną strukturą danych przechowywaną przez każdy proces będzie kolejka `QUEUE`, do której zapis będzie się odbywał poprzez wysłanie wiadomości `REQ` do każdego procesu, aby proces widział sam siebie w kolejce musi na początku odebrać od wszystkich `ACK`. Miejsce w kolejce będzie zapewnianie kolejno przez `ts` a następnie adres MAC urządzenia, co zapewni determinizm w jego przydziale i da nam pewność, że kolejki wszystkich procesów będą wyglądały tak samo. 
 
-Każde kolejne K miejsc w kolejce to będą nasze kółka. Kółko zostaje założony przez procesy które są na miejscu w kolejce będącym(wielokrotnością liczby K) - 1. Taki proces staje się organizatorem kółka, wysyłając wiadomość `WELCOME` będącą wiadomością tworzącą kółko, oraz `REL` będącą wiadomością rozwiązującą kółko po końcu imprezy. 
+Każde kolejne K miejsc w kolejce to będą nasze kółka. Kółko zostaje założony przez procesy które są na miejscu w kolejce będącym(wielokrotnością liczby K) - 1. Taki proces staje się organizatorem kółka, wysyłając wiadomość `WELCOME` będącą wiadomością tworzącą kółko, oraz `REL` będącą wiadomością rozwiązującą kółko po końcu imprezy. Kółko tworzone jest przez organizatora z siebie oraz K-1 procesów przed nim.
 
 Procesy są usuwane z kolejki dopiero po zakończeniu imprezy i wysłaniu wiadomości `REL` przez organizatora. Kolejka jest więc strukturą zarówno dla procesów oczekujących na sekcję krytyczną jak i tych już będących w sekcji krytycznej. Dzięki temu możemy kontrolować liczbę sekcji krytycznych. 
 
