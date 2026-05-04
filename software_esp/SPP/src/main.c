@@ -8,12 +8,17 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
+#include "esp_now.h"
+#include "esp_wifi.h"
+
+
 
 #include "mac_manager.h"
 #include "secrets.h"
 #include "config.h"
 #include "log_redirect.h"
 #include "wifi_manager.h"
+#include "messages.h"
 
 
 #define BLINK_GPIO 48
@@ -42,6 +47,32 @@ void app_main(void) {
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 
+
+    // przyklad uzycia ESPNOW, wysyla wiadomosc do urzadzenia o id 1 co 5 sekund
+
+    Message msg;
+    msg.id = 1;
+    msg.value = 42;
+
+    uint8_t peer_addr[6] = {0xA0, 0x11, 0x84, 0xAA, 0x2C, 0x01}; // adress jedynkii
+
+     esp_now_init();
+
+    esp_now_peer_info_t peerInfo;
+
+    
+
+    memset(&peerInfo, 0, sizeof(peerInfo));
+    memcpy(peerInfo.peer_addr, peer_addr, 6);
+
+    peerInfo.channel = 0;   // tutaj jest podobno jakieś sranie z tymi kanałami, zobaczymy czy będzie działać 
+    peerInfo.encrypt = false;
+
+    esp_now_add_peer(&peerInfo);  //takie coś trza będezie zrobić dla każdego peera (9 razem)  wymyśleć fajny sposób aby każdy z tego samego kodu robił dla sobie peerów
+
+
+
+
     while(1) {
         /* Blink off (output low) */
         ESP_LOGI(my_id, "Turning off the LED");
@@ -50,6 +81,15 @@ void app_main(void) {
         /* Blink on (output high) */
         ESP_LOGI(my_id, "Turning on the LED");
         gpio_set_level(BLINK_GPIO, 1);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+        // wysyłanie wiadomości do peerów
+        msg.id = 1;
+        msg.value = esp_random() % 100;
+        esp_now_send(peer_addr, (uint8_t *)&msg, sizeof(msg));
+
+        ESP_LOGI(my_id, "Sent message to peer: id=%d, value=%d", msg.id, msg.value);
+
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
