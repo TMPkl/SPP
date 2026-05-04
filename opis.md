@@ -11,227 +11,47 @@ Danych jest P poetów. Poeci dobierają się w kółka o wielkości K. Po zebran
 
 ---
 
-## Struktury i zmienne
+## Algorytm i struktury danych
 
-### Parametry globalne
+Do rozwiązania zadania wykorzystany zostanie **zmodyfikowany algorytm Lamporta**. Główną strukturą danych przechowywaną przez każdy proces będzie kolejka `QUEUE`, do której zapis będzie się odbywał poprzez wysłanie wiadomości `REQ` do każdego procesu, aby proces widział sam siebie w kolejce musi na początku odebrać od wszystkich `ACK`. Miejsce w kolejce będzie zapewnianie kolejno przez `ts` a następnie adres MAC urządzenia, co zapewni determinizm w jego przydziale i da nam pewność, że kolejki wszystkich procesów będą wyglądały tak samo. 
 
-| Parametr | Opis |
-|---|---|
-| `P` | Liczba wszystkich poetów |
-| `K` | Pojemność kółka |
-| `oczekiwalność` | Czas mierzony od zakończenia **ODPOCZYNEK**, po przekroczeniu którego poeta próbuje organizować kółko; wartość losowa, parametryzowana |
+Każde kolejne K miejsc w kolejce to będą nasze kółka. Kółko zostaje założony przez procesy które są na miejscu w kolejce będącym(wielokrotnością liczby K) - 1. Taki proces staje się organizatorem kółka, wysyłając wiadomość `WELCOME` będącą wiadomością tworzącą kółko, oraz `REL` będącą wiadomością rozwiązującą kółko po końcu imprezy. 
 
-### Zmienne lokalne każdego procesu
-
-| Zmienna | Typ | Opis |
-|---|---|---|
-| `my_ID` | int | Unikalny identyfikator poety, nadawany podczas inicjalizacji |
-| `my_clock` | int | Zegar Lamporta |
-| `co_przynoszę` | bool[3] | Rola w bieżącym kółku: `[sęp, alkohol, zagrycha]`; dokładnie jedno `true` po uzgodnieniu |
-| `co_przynosiłem` | int[3] | Historia ról: `[sęp, alkohol, zagrycha]`; zliczenie udziałów w kolejnych kółkach; indeksy: `0=sęp, 1=alkohol, 2=zagrycha`; inicjalizowane na `[0, 0, 0]` |
-| `obrażony_na_koło` | bool[] | Tablica długości `round_up(P/K)`; czy poeta odmawia udziału w kółkach; wartości zmieniają się losowo |
-| `my_round_id` | (int, int) | ID aktualnego kółka = `(my_ID, my_clock)` w chwili wysłania REQUEST; gwarantuje unikalność |
-| `organizing` | bool | Czy jestem aktualnie organizatorem kółka |
-| `in_round` | bool | Czy jestem w aktywnym kółku |
-| `pending_replies` | int | Liczba oczekiwanych REPLY na mój REQUEST |
-| `collected_oks` | lista | Poeci którzy odpowiedzieli `OK` na mój REQUEST |
-| `already_responded_to_any_invite` | bool | Czy już zaakceptowałem jakieś zaproszenie (używane w ODPOCZYNEK do odrzucania kolejnych INVITE) |
-| `participants` | lista | Uczestnicy bieżącego kółka (bez organizatora); używana w stanach WYSYLAM_ZAPRO, POWITANIA, IMPREZZAAA |
-| `deficyty_uczestnikow` | map: ID na int[3] | Zebrane wektory deficytów od wszystkich uczestników kółka (w stanie POWITANIA) |
-
----
+Procesy są usuwane z kolejki dopiero po zakończeniu imprezy i wysłaniu wiadomości `REL` przez organizatora. Kolejka jest więc strukturą zarówno dla procesów oczekujących na sekcję krytyczną jak i tych już będących w sekcji krytycznej. Dzięki temu możemy kontrolować liczbę sekcji krytycznych. 
 
 ## Wiadomości
 
 | Wiadomość | Pola | Opis |
 |---|---|---|
-| `REQUEST(ts, from)` | znacznik czasu Lamporta, ID nadawcy | Ogłoszenie chęci organizacji kółka |
-| `REPLY(ts, from, status, round_id?)` | znacznik czasu, ID, status należy do {OK, BUSY, OBRAŻONY}; jeśli BUSY to zawiera round_id kółka w którym nadawca uczestniczy | Odpowiedź na REQUEST |
-| `INVITE(round_id, from)` | ID kółka, ID organizatora | Zaproszenie do konkretnego kółka |
-| `IM_INTERESTED(round_id, from)` | ID kółka, ID akceptującego | Potwierdzenie chęci udziału |
-| `WELCOME(round_id, participants[])` | ID kółka, lista uczestników | Potwierdzenie zapisu do kółka; wysyłane przez organizatora do wszystkich przyjętych |
-| `YOURE_NOT_IN(round_id)` | ID kółka | Odmowa zapisu dla członków którzy zaakceptowali ale się już nie zmieścili do kółka |
-| `DECLINE(round_id, from)` | ID kółka, ID odmawiającego | Odmowa (obrażony lub zajęty) |
-| `HELLO(round_id, from, deficyty[])` | ID kółka, ID nadawcy, tablica `int[3]` | Każdy uczestnik wysyła pozostałym swój wektor `co_przynosiłem[]` (historię ról) |
-| `RELEASE(round_id, from)` | ID kółka, ID nadawcy | Koniec libacji, zwolnienie zasobu |
+| `REQ(from, ts)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta | wysyłane gdy proces chce dołączyć do kolejki |
+| `ACK(from, ts)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta | potwierdzenie odbioru wiadomości |
+| `REL(from, ts)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta | zwolnienie sekcji krytycznej i miejsc w kolejce |
+| `WELCOME(from, ts, deficits, participants)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta, tablica deficytów dotychczasowych przynoszonych rzeczy, tablica uczestników koła | wiadomość wysyłana przez organizatora kółka informująca o założeniu kółka procesy w kółku |
+| `HELLO(from, ts, deficits)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta, tablica deficytów dotychczasowych przynoszonych rzeczy | powitanie uczestników kółka służącego jednocześnie do dogadania się co kto przynosi |
+| `REL(from, ts, participants)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta, tablica uczestników usuwanego koła | wiadomość wysyłana przez organizatora kółka aby zwolnić sekcję krytyczną i usunąć z kolejki wszystkie procesy w rozwiązywanym kółku
 
 ---
 
 ## Stany
 
+**UWAGA**: W każdym stanie, każdy proces obsługuje przychodzące `REQ` odpowiadając na nie `ACK` i aktualizując stale kolejkę.
+
 | Stan | Opis |
 |---|---|
-| **ODPOCZYNEK** | Stan początkowy; poeta odpoczywa po libacji przez losowy czas |
-| **REQUESTING** | Naszło mnie organizować libację; rozsyłam REQUEST i czekam na odpowiedzi |
-| **WYSYLAM_ZAPRO** | Zebrałem odpowiedzi na REQUEST; zapraszam chętnych poetów i kompletuję skład kółka |
-| **WAITING_FOR_WELCOME** | Czekam aż organizator potwierdzi mi że dostałem się do kółka |
-| **POWITANIA** | Jestem w kółku; wymieniam deficyty z pozostałymi uczestnikami i ustalam swoją rolę |
-| **IMPREZZAAA** | Libacja trwa |
-| **OBRAZILEM_SIE** | Losowo stwierdziłem że nie chcę brać udziału w kółku przez jakiś czas |
+| **KACUJE** | stan odpoczynku po imprezie, proces czeka losową ilość czasu |
+| **WYSYLAM_REQ** | proces wysyła do wszystkich innych procesów wiadomość `REQ` a następnie czeka na `ACK` od wszystkich aby móc umieścić siebie w kolejce i przejść do stanu **JESTEM_W_KOLEJCE** |
+| **JESTEM_W_KOLEJCE** | proces sprawdza swoje miejsce w kolejce, jeśli jest K-tym elementem to zakłada kółko wysyłając do swoich K-1 poprzedników wiadomość `WELCOME`, jeśli nie to na nią oczekuje aby móc przejść do kolejnego stanu |
+| **UMAWIAM_IMPREZE** | w tym stanie wszystkie procesu oprócz procesu organizatora wysyłają do całego koła `HELLO` a następnie gdy otrzymają od wszystkich innych oprócz organizatora wiadomość `HELLO` to obliczają u siebie na podstawie ustalonego algorytmu co kto przynosi. Po obliczeniu przechodzą w stan **IMPREZA** |
+| **IMPREZA** | impreza trwa ustaloną ilość czasu, gdy się skończy organizator wysyła broadcast `REL` informując o zwolnieniu miejsc w kolejce przez wszystkie procesy w kole i przechodzi do kolejnego stanu. Uczestnicy po skończeniu czasu czekają na `REL` od organizatora i następnie przechodzą do stanu **KACUJE** |
 
-> **Stan początkowy:** ODPOCZYNEK
 
----
+> **Diagram stanow:** KACUJE -> WYSYLAM_REQ -> JESTEM_W_KOLEJCE -> UMAWIAM_IMPREZE -> IMPREZA -> KACUJE 
 
-## Opis szczegółowy algorytmu dla procesu i
+### Algorytm podziału zasobów między procesy w stanie UMAWIAM_IMPREZE
 
-### ODPOCZYNEK -> REQUESTING
+Każdy proces uczestnika koła posiada ten sam algorytm do obliczania co kto ma przynieść, następnie notuje swój wynik na przyszłość. 
 
-Po upłynięciu czasu `oczekiwalności` od końca ostatniej libacji (lub startu procesu):
-
-```
-my_clock++
-my_round_id = (my_ID, my_clock)
-Rozgłoś REQUEST(my_clock, my_ID) do wszystkich poetów
-pending_replies = P - 1   // liczba pozostałych poetów
-collected_oks   = []
-Przejdź do stanu REQUESTING
-```
-
----
-
-### Obsługa odebranego REQUEST(ts, from) - w dowolnym stanie
-
-```
-my_clock = max(my_clock, ts) + 1
-
-if stan == OBRAZILEM_SIE:
-    odpowiedz REPLY(my_clock, my_ID, OBRAŻONY)
-    return
-
-if stan in {IMPREZZAAA, WYSYLAM_ZAPRO, POWITANIA, WAITING_FOR_WELCOME, REQUESTING}:
-    odpowiedz REPLY(my_clock, my_ID, BUSY, my_round_id)
-    return
-
-if stan == ODPOCZYNEK:
-    odpowiedz REPLY(my_clock, my_ID, OK)
-    return
-```
-
-**Uwaga:** Odpowiedź `OK` oznacza wyłącznie „jestem dostępny, możesz mnie zaprosić do kółka" - nie jest jeszcze deklaracją uczestnictwa. Odpowiedź `BUSY` informuje, że poeta jest zajęty organizacją lub uczestnictwem w kółku o podanym `round_id`.
-
----
-
-### Obsługa odebranego REPLY(ts, from, status, round_id) - będąc w REQUESTING
-
-```
-my_clock = max(my_clock, ts) + 1
-pending_replies--
-
-if status == OK:
-    collected_oks.append(from)
-
-if pending_replies == 0:
-    // Zebrałem wszystkie odpowiedzi
-    organizing = true
-    in_round = true
-    participants = []
-    Przejdź do WYSYLAM_ZAPRO
-```
-
----
-
-### Stan WYSYLAM_ZAPRO
-
-Organizator zaprasza poetów spośród tych, którzy odpowiedzieli `OK`:
-
-```
-kandydaci = collected_oks
-Rozgłoś INVITE(my_round_id, my_ID) do wszystkich kandydatów
-
-dopóki nie zebrano K-1 IM_INTERESTED-ów i są jeszcze kandydaci:
-    na IM_INTERESTED(round_id, from):
-        dodaj (from) do participants[]
-    na DECLINE(round_id, from):
-        usuń (from) z kandydatów
-
-jeśli |participants| == K-1:
-    // Komplet uczestników -> potwierdzenia
-    Wyślij WELCOME(my_round_id, participants ∪ {my_ID}) do każdego w participants[]
-    deficyty_uczestnikow = {}
-    Przejdź do POWITANIA
-w przeciwnym razie:
-    // Za mało chętnych → kółko nie dochodzi do skutku
-    in_round   = false
-    organizing = false
-    Przejdź do ODPOCZYNEK
-```
-
----
-
-### Obsługa odebranego INVITE(round_id, from) - będąc w ODPOCZYNEK
-
-```
-if in_round == false i stan != OBRAZILEM_SIE:
-    // Akceptuj tylko PIERWSZE otrzymane zaproszenie
-    if !already_responded_to_any_invite:
-        already_responded_to_any_invite = true
-        in_round = true
-        my_round_id = round_id
-        odpowiedz IM_INTERESTED(round_id, my_ID)
-        Przejdź do WAITING_FOR_WELCOME
-    else:
-        // Już zaakceptowałem inne zaproszenie
-        odpowiedz DECLINE(round_id, my_ID)
-w przeciwnym razie:
-    odpowiedz DECLINE(round_id, my_ID)
-```
-
----
-
-### Stan WAITING_FOR_WELCOME
-
-Zaproszony poeta czeka po wysłaniu IM_INTERESTED na potwierdzenie lub odrzucenie przez organizatora. W tym czasie traktuje wszelkie nowe INVITE jak będąc zajętym (`in_round == true` powoduje DECLINE).
-
-```
-na WELCOME(round_id, participants[]):
-    deficyty_uczestnikow = {}
-    Rozgłoś HELLO(my_round_id, my_ID, co_przynosiłem[]) do wszystkich w participants[] \ {my_ID}
-    Przejdź do POWITANIA
-
-na YOURE_NOT_IN(round_id):
-    in_round = false
-    already_responded_to_any_invite = false
-    Przejdź do ODPOCZYNEK
-```
-
----
-
-### Stan POWITANIA
-
-Każdy uczestnik (w tym organizator) rozsyła swój wektor historii ról do pozostałych, zbiera ich wektory, po czym **samodzielnie** oblicza przydzieloną sobie rolę.
-
-#### Wymiana deficytów
-
-**Przy wejściu do stanu** (dotyczy zarówno organizatora, jak i uczestników po odebraniu WELCOME):
-
-```
-Rozgłoś HELLO(my_round_id, my_ID, co_przynosiłem[]) do wszystkich pozostałych w kółku
-deficyty_uczestnikow[my_ID] = co_przynosiłem[]   // zapisz własne dane
-```
-
-**Obsługa odebranego HELLO(round_id, from, deficyty[]):**
-
-```
-deficyty_uczestnikow[from] = deficyty[]
-
-jeśli |deficyty_uczestnikow| == K:   // zebrano dane od wszystkich K uczestników
-    co_przynoszę = oblicz_moją_rolę(deficyty_uczestnikow, my_ID)
-    Przejdź do IMPREZZAAA
-```
-
-**Metryka deficytu**
-
-Dla poety `i` i roli `r` deficyt wyraża, o ile mniej niż „sprawiedliwy udział" dana rola była przez poetę pełniona:
-
-```
-total_i      = co_przynosiłem[i][0] + co_przynosiłem[i][1] + co_przynosiłem[i][2]
-deficit(i,r) = (1/3) * total_i  −  co_przynosiłem[i][r]
-```
-
-Im większy deficyt, tym bardziej poeta „zalega" z daną rolą.
-
-**Liczba miejsc na każdą rolę** (konwencja że ma być równa ilość każdej roli w kole):
+Podział zasobów występuje zgodnie z konwencją: 
 
 | K mod 3 | sęp | alkohol | zagrycha |
 |---|---|---|---|
@@ -239,62 +59,7 @@ Im większy deficyt, tym bardziej poeta „zalega" z daną rolą.
 | 1 | K/3 + 1 | K/3 | K/3 |
 | 2 | K/3 + 1 | K/3 + 1 | K/3 |
 
-**Procedura przydziału:**
+Zapewnia to równą liczbę każdej roli w kole. 
 
-```
-Wejście:  deficyty_uczestnikow - mapa ID -> co_przynosiłem[] dla wszystkich K uczestników
-Wejście:  my_ID
-Wyjście:  rola przypisana procesowi my_ID
+Aby przydzielić zasoby każdy proces w wiadomości `HELLO` wysyła swoją tablicę deficytów (jej parametry są liczone jako $\frac{ileRazyPrzynioslemZasob}{iloscImprezWKtorychBralemUdzial}$). Obliczanie kto co przynosi odbywa się za pomocą pętli iterującej po wszystkich zasobach, i sprawdzającej dla każdego miejsca w nich deficyty uczestników w tej kategorii. Przypisany do miejsca zostaje uczestnik o największym deficycie.
 
-nieprzydzieleni = lista wszystkich K ID uczestników
-
-dla każdej roli r w kolejności [sęp(0), alkohol(1), zagrycha(2)]:
-    posortuj nieprzydzieleni malejąco po deficit(i, r),
-        przy remisach rosnąco po ID (gwarantuje identyczny wynik u wszystkich)
-    przydziel rolę r pierwszym miejsca_na_rolę[r] poetom z posortowanej listy
-    usuń przydzielonych z nieprzydzieleni
-
-zwróć rolę przypisaną my_ID
-```
-
-Ponieważ każdy proces dysponuje identycznym zestawem danych `deficyty_uczestnikow` i stosuje ten sam deterministyczny algorytm, każdy niezależnie dochodzi do tego samego przydziału - **bez konieczności wymiany dodatkowych wiadomości**.
-
-**Dzięki założeniu o równości ról i zastosowania algorytmu:** po dostatecznie wielu libacjach dla każdego poety `i`:
-
-```
-|co_przynosiłem[i][r] / total_i  −  1/3|  zmierza do  0
-```
-
----
-
-### Stan IMPREZZAAA
-
-```
-Libacja trwa przez losowy czas
-Po zakończeniu:
-    r = co_przynoszę
-    co_przynosiłem[r]++
-    co_przynoszę = -1
-
-    Wyślij RELEASE(my_round_id, my_ID) do wszystkich w kółku
-
-    organizing = false
-    in_round = false
-    already_responded_to_any_invite = false
-    Przejdź do ODPOCZYNEK
-```
-
----
-
-### Stan OBRAZILEM_SIE
-
-```
-Wejście: losowo z ODPOCZYNEK, na losowy czas
-W tym czasie:
-  - na REQUEST odpowiadaj REPLY(..., OBRAŻONY)
-  - na INVITE  odpowiadaj DECLINE(...)
-Po upływie czasu:
-  Przejdź do ODPOCZYNEK
-```
-
----
