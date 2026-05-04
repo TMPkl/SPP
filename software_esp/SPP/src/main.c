@@ -15,12 +15,17 @@
 #include "log_redirect.h"
 #include "wifi_manager.h"
 
+#include "esp_wifi.h" //do sczytania chanelu tylko, potem wywalić 
+
 
 #define BLINK_GPIO 48
 
 
 
 void app_main(void) {
+    int debud = 31; // Do usunięcia, tylko do testów
+
+
     // Inicjalizacja Wi-Fi przy użyciu dedykowanego menedżera
     wifi_init_sta();
     
@@ -38,7 +43,11 @@ void app_main(void) {
     #endif
     
     printf("WiFi initialized.\n");
+    uint8_t chanel;
+    esp_wifi_get_channel(&chanel, NULL);
+
     
+
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 
@@ -49,6 +58,9 @@ void app_main(void) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
         /* Blink on (output high) */
         ESP_LOGI(my_id, "Turning on the LED");
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        ESP_LOGI(my_id, "wifi channel: %d \n", chanel);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
         gpio_set_level(BLINK_GPIO, 1);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
