@@ -26,9 +26,16 @@ void app_main(void) {
     
     // Inicjalizacja i konfiguracja loggera HTTPS
     init_tcp_logger();
+    
+    #if USEZLOTA
+    while (tcp_logger_connect(ZLOTA_LOG_INGEST_URL, LOG_INGEST_TOKEN) != ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    #else
     while (tcp_logger_connect(DEBUG_LOG_INGEST_URL, DEBUG_LOG_INGEST_TOKEN) != ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+    #endif
     
     printf("WiFi initialized.\n");
     

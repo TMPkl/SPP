@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -141,8 +142,8 @@ func loadIngestToken() string {
 var ingestToken = loadIngestToken()
 
 type ingestRequest struct {
-	ID   string `json:"id"`
-	Line string `json:"line"`
+	ID   byte
+	Line string
 }
 
 func indexHandler(w http.ResponseWriter, _ *http.Request) {
@@ -204,23 +205,29 @@ func ingestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req ingestRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*1024))
-	if err := decoder.Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+	body := io.LimitReader(r.Body, 256)
+	data, err := io.ReadAll(body)
+	if err != nil || len(data) < 2 {
+		http.Error(w, "Invalid binary payload", http.StatusBadRequest)
 		return
 	}
 
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = "ESP-UNKNOWN"
+	idHash := data[0]
+	lineLen := int(data[1])
+
+	if len(data) < 2+lineLen {
+		http.Error(w, "Truncated payload", http.StatusBadRequest)
+		return
 	}
 
-	line := strings.TrimSpace(req.Line)
+	line := string(data[2 : 2+lineLen])
+	line = strings.TrimSpace(line)
 	if line == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+
+	id := fmt.Sprintf("ESP-%02X", idHash)
 
 	style := styleForClient(id)
 	fmt.Printf("%s[%s]%s %s\n", style.ansi, id, colorReset, line)

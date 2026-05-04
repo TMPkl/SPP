@@ -6,14 +6,13 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "log_redirect.h"
 #include "mac_manager.h"
 
 #define LOGGER_QUEUE_LEN 32
 #define LOGGER_LINE_MAX 256
-#define LOGGER_TASK_STACK_SIZE 12288
+#define LOGGER_TASK_STACK_SIZE 8192
 
 typedef struct {
     char line[LOGGER_LINE_MAX];
@@ -21,44 +20,23 @@ typedef struct {
 
 static bool logger_ready = false;
 static bool suppress_capture = false;
-static char ingest_url[256];
-static char ingest_token[128];
-static char escaped_id_buf[48];
-static char escaped_line_buf[512];
-static char payload_buf[640];
+static char ingest_url[128];
+static char ingest_token[64];
+static uint8_t payload_buf[256];
 static QueueHandle_t logger_queue = NULL;
 static TaskHandle_t logger_task_handle = NULL;
 
-static void json_escape(const char *src, char *dst, size_t dst_size)
+static uint8_t hash_id(const char *id)
 {
-    size_t j = 0;
-    for (size_t i = 0; src[i] != '\0' && j + 2 < dst_size; ++i) {
-        char c = src[i];
-        if (c == '\\' || c == '"') {
-            if (j + 2 >= dst_size) {
-                break;
-            }
-            dst[j++] = '\\';
-            dst[j++] = c;
-            continue;
-        }
-        if (c == '\n') {
-            if (j + 2 >= dst_size) {
-                break;
-            }
-            dst[j++] = '\\';
-            dst[j++] = 'n';
-            continue;
-        }
-        if (c == '\r') {
-            continue;
-        }
-        if ((unsigned char)c < 0x20) {
-            continue;
-        }
-        dst[j++] = c;
+    size_t len = strlen(id);
+    if (len >= 2) {
+        char hex_str[3];
+        hex_str[0] = id[len-2];
+        hex_str[1] = id[len-1];
+        hex_str[2] = '\0';
+        return (uint8_t)strtol(hex_str, NULL, 16);
     }
-    dst[j] = '\0';
+    return 0;
 }
 
 static void post_log_line(const char *line)
@@ -67,21 +45,20 @@ static void post_log_line(const char *line)
         return;
     }
 
-    json_escape(my_id, escaped_id_buf, sizeof(escaped_id_buf));
-    json_escape(line, escaped_line_buf, sizeof(escaped_line_buf));
-
-    int payload_len = snprintf(payload_buf, sizeof(payload_buf),
-                               "{\"id\":\"%s\",\"line\":\"%s\"}",
-                               escaped_id_buf, escaped_line_buf);
-    if (payload_len <= 0 || payload_len >= (int)sizeof(payload_buf)) {
-        return;
+    size_t line_len = strlen(line);
+    if (line_len > 254) {
+        line_len = 254;
     }
+
+    payload_buf[0] = hash_id(my_id);
+    payload_buf[1] = (uint8_t)line_len;
+    memcpy(&payload_buf[2], line, line_len);
+    int payload_len = 2 + line_len;
 
     esp_http_client_config_t config = {
         .url = ingest_url,
         .method = HTTP_METHOD_POST,
-        .timeout_ms = 3000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 8000,
     };
 
     suppress_capture = true;
@@ -91,57 +68,37 @@ static void post_log_line(const char *line)
         return;
     }
 
-    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "Content-Type", "application/octet-stream");
     esp_http_client_set_header(client, "X-Log-Token", ingest_token);
-    esp_http_client_set_post_field(client, payload_buf, payload_len);
+    esp_http_client_set_post_field(client, (const char *)payload_buf, payload_len);
 
-    esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        int status = esp_http_client_get_status_code(client);
-        if (status >= 400) {
-            // Server rejected the payload; skip this line and continue logging.
-        }
-    }
-
+    esp_http_client_perform(client);
     esp_http_client_cleanup(client);
     suppress_capture = false;
 }
 
-static bool normalize_log_line(const char *src, char *dst, size_t dst_size)
-{
-    size_t j = 0;
-    bool has_content = false;
-
-    for (size_t i = 0; src[i] != '\0' && j + 1 < dst_size; ++i) {
-        char c = src[i];
-        if (c == '\r' || c == '\n') {
-            continue;
-        }
-        dst[j++] = c;
-        if (c != ' ' && c != '\t') {
-            has_content = true;
-        }
-    }
-
-    while (j > 0 && (dst[j - 1] == ' ' || dst[j - 1] == '\t')) {
-        --j;
-    }
-
-    dst[j] = '\0';
-    return has_content && j > 0;
-}
-
 static void enqueue_log_line(const char *raw_line)
 {
-    if (!logger_ready || suppress_capture || logger_queue == NULL) {
+    if (!logger_ready || suppress_capture || logger_queue == NULL || raw_line == NULL) {
         return;
     }
 
     logger_msg_t msg;
-    if (!normalize_log_line(raw_line, msg.line, sizeof(msg.line))) {
-        return;
+    size_t j = 0;
+    bool has_content = false;
+
+    for (size_t i = 0; raw_line[i] != '\0' && j + 1 < sizeof(msg.line); ++i) {
+        char c = raw_line[i];
+        if (c == '\r' || c == '\n') continue;
+        msg.line[j++] = c;
+        if (c != ' ' && c != '\t') has_content = true;
     }
 
+    while (j > 0 && (msg.line[j - 1] == ' ' || msg.line[j - 1] == '\t')) --j;
+    
+    if (!has_content || j == 0) return;
+    
+    msg.line[j] = '\0';
     (void)xQueueSend(logger_queue, &msg, 0);
 }
 
@@ -168,7 +125,6 @@ static int tcp_vprintf(const char *fmt, va_list args)
         enqueue_log_line(buffer);
     }
 
-    // Dodatkowo wypisz na standardowe wyjście (UART)
     vprintf(fmt, args_copy);
     va_end(args_copy);
 

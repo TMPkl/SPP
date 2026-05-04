@@ -6,16 +6,19 @@
 #include "esp_err.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "config.h"
 
 char my_id[16] = "UNKNOWN";
 // Zmienna używana w głównym kodzie
 // Zostaje ona zadeklarowana jako 'extern' w pliku nagłówkowym
 // a jej fizyczne umieszczenie zachodzi w pliku main.c
 
+
 static void update_device_id_from_mac(const uint8_t *mac) {
     snprintf(my_id, sizeof(my_id), "ESP-%02X%02X", mac[4], mac[5]);
 }
 
+#if SET_MAC 
 void save_mac_to_nvs(const uint8_t *mac) {
     nvs_handle_t my_handle;
     esp_err_t err;
@@ -43,6 +46,7 @@ void save_mac_to_nvs(const uint8_t *mac) {
     }
     nvs_close(my_handle);
 }
+#endif
 
 void load_and_set_mac_from_nvs(void) {
     nvs_handle_t my_handle;
