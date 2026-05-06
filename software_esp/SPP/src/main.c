@@ -8,12 +8,14 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
+#include "esp_now.h"
 
 #include "mac_manager.h"
 #include "secrets.h"
 #include "config.h"
 #include "log_redirect.h"
 #include "wifi_manager.h"
+#include "esp_now_receiver.h"
 
 
 #define BLINK_GPIO 48
@@ -21,10 +23,8 @@
 
 
 void app_main(void) {
-    // Inicjalizacja Wi-Fi przy użyciu dedykowanego menedżera
     wifi_init_sta();
     
-    // Inicjalizacja i konfiguracja loggera HTTPS
     init_tcp_logger();
     
     #if USEZLOTA
@@ -38,6 +38,9 @@ void app_main(void) {
     #endif
     
     printf("WiFi initialized.\n");
+    
+    esp_now_receiver_init();
+    esp_now_add_all_peers();
     
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);

@@ -74,3 +74,7 @@ void load_and_set_mac_from_nvs(void) {
     }
     nvs_close(my_handle);
 }
+
+void get_current_mac(uint8_t *mac) {
+    esp_wifi_get_mac(WIFI_IF_STA, mac);
+}
