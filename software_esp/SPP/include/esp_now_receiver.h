@@ -2,6 +2,7 @@
 #define ESP_NOW_RECEIVER_H
 
 #include "esp_err.h"
+#include "esp_now.h"
 
 typedef struct {
     uint8_t sender_id[6];
@@ -11,7 +12,7 @@ typedef struct {
 
 esp_err_t esp_now_receiver_init(void);
 
-void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int data_len);
+void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len);
 
 esp_err_t esp_now_add_all_peers(void);
 

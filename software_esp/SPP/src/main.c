@@ -39,8 +39,8 @@ void app_main(void) {
     
     printf("WiFi initialized.\n");
     
-    esp_now_receiver_init();
-    esp_now_add_all_peers();
+    esp_now_receiver_init();  // to jest aby wg zainicjalizaowac now 
+    esp_now_add_all_peers(); // to jest aby dodać wszystkie urządzenia z peerów 
     
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);

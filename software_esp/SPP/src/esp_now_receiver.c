@@ -1,23 +1,23 @@
 #include "esp_now_receiver.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
+#include "esp_now.h"
 #include "string.h"
 #include "mac_manager.h"
 
 
 static const char *TAG = "ESP_NOW_RECEIVER";
 
-void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
-    if (mac_addr == NULL || data == NULL) {
-        ESP_LOGE(TAG, "Błędny wskaźnik: mac_addr=%p, data=%p", mac_addr, data);
+void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len) {
+    if (recv_info == NULL || data == NULL) {
+        ESP_LOGE(TAG, "Błędny wskaźnik: recv_info=%p, data=%p", recv_info, data);
         return;
     }
 
+    const uint8_t *mac_addr = recv_info->src_addr;
     int msg_len = (data_len > 250) ? 250 : data_len;
 
-    ESP_LOGI(TAG, "Wiadomość od: %02X:%02X:%02X:%02X:%02X:%02X",
-             mac_addr[0], mac_addr[1], mac_addr[2],
-             mac_addr[3], mac_addr[4], mac_addr[5]);
+    ESP_LOGI(TAG, "Wiadomość od: %02X:%02X:%02X:%02X:%02X:%02X",mac_addr[0], mac_addr[1], mac_addr[2],mac_addr[3], mac_addr[4], mac_addr[5]);
 
     ESP_LOGI(TAG, "Zawartość- %d bajtów: %.*s",
              msg_len, msg_len, (const char *)data);
@@ -26,8 +26,7 @@ void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int data_len)
         char hex_buffer[251 * 3];
         int pos = 0;
         for (int i = 0; i < msg_len; i++) {
-            pos += snprintf(hex_buffer + pos, sizeof(hex_buffer) - pos,
-                          "%02X ", data[i]);
+            pos += snprintf(hex_buffer + pos, sizeof(hex_buffer) - pos,"%02X ", data[i]);
         }
         ESP_LOGD(TAG, "Hex dump: %s", hex_buffer);
     }
@@ -76,8 +75,7 @@ esp_err_t esp_now_add_all_peers(void) {
     get_current_mac(own_mac);
     
     uint8_t own_device_id = own_mac[5];
-    ESP_LOGI(TAG, "Adding peers - own device ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",
-             own_device_id, own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
+    ESP_LOGI(TAG, "Adding peers - own device ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",own_device_id, own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
     
     for (uint8_t device_id = 0; device_id < 10; device_id++) {
         if (device_id == own_device_id) {
@@ -98,8 +96,7 @@ esp_err_t esp_now_add_all_peers(void) {
         if (esp_now_add_peer(&peer) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to add peer ID: %02X", device_id);
         } else {
-            ESP_LOGI(TAG, "Added peer ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",
-                     device_id, peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
+            ESP_LOGI(TAG, "Added peer ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",device_id, peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
         }
     }
     
