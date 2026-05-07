@@ -8,6 +8,13 @@
 
 static const char *TAG = "ESP_NOW_RECEIVER";
 
+esp_now_peer_info_t peers_table[MAX_PEERS] = {};
+
+esp_now_peer_info_t* get_peer_by_id(uint8_t device_id) {
+    if (device_id >= MAX_PEERS) return NULL;
+    return &peers_table[device_id];
+}
+
 void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len) {
     if (recv_info == NULL || data == NULL) {
         ESP_LOGE(TAG, "Błędny wskaźnik: recv_info=%p, data=%p", recv_info, data);
@@ -96,6 +103,7 @@ esp_err_t esp_now_add_all_peers(void) {
         if (esp_now_add_peer(&peer) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to add peer ID: %02X", device_id);
         } else {
+            memcpy(&peers_table[device_id], &peer, sizeof(esp_now_peer_info_t));
             ESP_LOGI(TAG, "Added peer ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",device_id, peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
         }
     }
