@@ -8,6 +8,8 @@
 
 #define MAX_PROCESSES       10    
 #define QUEUE_SIZE          MAX_PROCESSES
+#define PARTY_DURATION_MS 5000
+#define MAX_KACOWANIE_MS 10000
 
 typedef enum {
     KACUJE,   
@@ -33,12 +35,15 @@ typedef struct {
     queue_entry_t queue[QUEUE_SIZE]; 
     uint8_t queue_size;  
      
-    uint8_t ack_count;       
+    uint8_t ack_count;  
+    
+    uint8_t hello_count;
     
     uint8_t participants[CIRCLE_SIZE];
     bool is_organizer;
     deficit_t my_deficits;  
     contribution_t what_i_bring;   
+    deficit_t received_deficits[CIRCLE_SIZE];
 
     process_state_t state;  
     

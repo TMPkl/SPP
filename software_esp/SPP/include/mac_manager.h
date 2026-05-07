@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-extern char my_id[16];
+extern char my_id[7];
 
 void save_mac_to_nvs(const uint8_t *mac);
 

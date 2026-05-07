@@ -32,20 +32,13 @@ typedef struct __attribute__((packed)) {
 
 // WELCOME(from, ts, deficits, participants)
 typedef struct __attribute__((packed)) {
-    int16_t deficits[3];
+    deficit_t my_deficit;
     uint8_t participants[CIRCLE_SIZE];
 } payload_welcome_t;
 
 
-typedef struct __attribute__((packed)) {
-    uint8_t sep;
-    uint8_t alko;      /// ile razy co przyniosłem
-    uint8_t zagrycha; 
-} deficit_t;
-
 // HELLO(from, ts, deficits)
 typedef struct __attribute__((packed)) {
-    int16_t deficits[3];
     deficit_t my_deficit;
 } payload_hello_t;
 
