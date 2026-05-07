@@ -4,6 +4,7 @@
 #include "esp_now.h"
 #include "string.h"
 #include "mac_manager.h"
+#include "lamportTS.h"
 
 
 static const char *TAG = "ESP_NOW_RECEIVER";
@@ -20,6 +21,10 @@ void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, 
         ESP_LOGE(TAG, "Błędny wskaźnik: recv_info=%p, data=%p", recv_info, data);
         return;
     }
+
+    // Update Lamport timestamp
+    lamport_increment();
+    uint64_t local_ts = lamport_get_time();
 
     const uint8_t *mac_addr = recv_info->src_addr;
     int msg_len = (data_len > 250) ? 250 : data_len;

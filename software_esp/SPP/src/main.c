@@ -16,6 +16,7 @@
 #include "log_redirect.h"
 #include "wifi_manager.h"
 #include "esp_now_receiver.h"
+#include "lamportTS.h"
 
 
 #define BLINK_GPIO 48
@@ -56,33 +57,45 @@ void app_main(void) {
     
 //// koniec incjalizowania wszystkiego
 
-    healthcheck_message_t health_msg;
-
-    strncpy((char *)health_msg.content, "Hello from ESP32!", sizeof(health_msg.content));
+    // Lamport Clock Test
+    uint8_t my_device_id = (uint8_t)strtol((const char*)&my_id[6], NULL, 16);
     
-    health_msg.sender_id[0] = (int)my_id[7];
-    health_msg.sender_id[1] = (int)my_id[8];
+    // Routing: 1 -> 2 -> 10 -> 1
+    uint8_t next_device_id = (my_device_id == 1) ? 2 : (my_device_id == 2) ? 10 : 1;
+    
+    ESP_LOGI(my_id, "Lamport Clock Test started. Device ID: %d, Sending to: %d", my_device_id, next_device_id);
 
-    health_msg.content_len = strlen((char *)health_msg.content);
-
-     esp_now_peer_info_t* peer = get_peer_by_id(1); // robie to jako przykład wysyłania, wysyłam tylko do jednyki
-
-    if (peer != NULL) {
-        esp_err_t result = esp_now_send(peer->peer_addr, (uint8_t *)&health_msg, sizeof(healthcheck_message_t));
-        if (result == ESP_OK) {
-            ESP_LOGI(my_id, "Health check sent ");
-        } else {
-            ESP_LOGE(my_id, "Failed to send : %s", esp_err_to_name(result));
-        }}
-
+    int send_counter = 0;
+    
     while(1) {
-        /* Blink off (output low) */
-        ESP_LOGI(my_id, "Turning off the LED");
+        // Send test message every 5 seconds
+        healthcheck_message_t health_msg;
+        snprintf((char *)health_msg.content, sizeof(health_msg.content), 
+                 "From device %d - Message #%d", my_device_id, send_counter);
+        
+        health_msg.sender_id[0] = (int)my_id[7];
+        health_msg.sender_id[1] = (int)my_id[8];
+        health_msg.content_len = strlen((char *)health_msg.content);
+
+        esp_now_peer_info_t* peer = get_peer_by_id(next_device_id);
+
+        if (peer != NULL) {
+            lamport_increment();
+            uint64_t ts = lamport_get_time();
+            esp_err_t result = esp_now_send(peer->peer_addr, (uint8_t *)&health_msg, sizeof(healthcheck_message_t));
+            if (result == ESP_OK) {
+                ESP_LOGI(my_id, "Message #%d sent to device %d", send_counter, next_device_id);
+            } else {
+                ESP_LOGE(my_id, "Failed to send to device %d: %s", next_device_id, esp_err_to_name(result));
+            }
+        }
+        
+        send_counter++;
+        
+        // Blink LED every 5 seconds
         gpio_set_level(BLINK_GPIO, 0);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        /* Blink on (output high) */
-        ESP_LOGI(my_id, "Turning on the LED");
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
         gpio_set_level(BLINK_GPIO, 1);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
     }
 }
