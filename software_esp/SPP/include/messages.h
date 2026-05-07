@@ -21,7 +21,7 @@ typedef enum __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     msg_type_t type;
     uint8_t    from;
-    uint32_t   ts;
+    uint64_t   ts;
 } msg_header_t;
 
 
