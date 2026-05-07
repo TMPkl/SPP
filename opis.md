@@ -25,7 +25,6 @@ Procesy są usuwane z kolejki dopiero po zakończeniu imprezy i wysłaniu wiadom
 |---|---|---|
 | `REQ(from, ts)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta | wysyłane gdy proces chce dołączyć do kolejki |
 | `ACK(from, ts)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta | potwierdzenie odbioru wiadomości |
-| `REL(from, ts)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta | zwolnienie sekcji krytycznej i miejsc w kolejce |
 | `WELCOME(from, ts, deficits, participants)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta, tablica deficytów dotychczasowych przynoszonych rzeczy, tablica uczestników koła | wiadomość wysyłana przez organizatora kółka informująca o założeniu kółka procesy w kółku |
 | `HELLO(from, ts, deficits)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta, tablica deficytów dotychczasowych przynoszonych rzeczy | powitanie uczestników kółka służącego jednocześnie do dogadania się co kto przynosi |
 | `REL(from, ts, participants)` | id procesu wysyłającego, znacznik czasowy zegaru Lamporta, tablica uczestników usuwanego koła | wiadomość wysyłana przez organizatora kółka aby zwolnić sekcję krytyczną i usunąć z kolejki wszystkie procesy w rozwiązywanym kółku
