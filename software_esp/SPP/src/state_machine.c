@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"  
 #include "freertos/task.h"
+#include "esp_log.h"
 #include "process.h"
 #include "esp_now.h"
 #include "esp_now_receiver.h"
@@ -168,7 +169,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             .mac_address = msg->header.from,
             .lamport_ts  = msg->header.ts,
         };
-        //mqueue_insert(proc, &entry);
+        mqueue_insert(proc, &entry);
 
         espnow_msg_t ack = {
             .header = {
@@ -236,7 +237,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
 
             case IMPREZA:
                 if (msg->header.type == MSG_REL) {
-                    queue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
+                    mqueue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
                     set_state(proc, KACUJE);
                     xSemaphoreGive(proc->rel_semaphore); 
                 }

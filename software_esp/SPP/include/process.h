@@ -3,6 +3,8 @@
 #include "deficits.h"
 #include "messages.h"
 #include <stdbool.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #ifndef PROCESS_H
 #define PROCESS_H
