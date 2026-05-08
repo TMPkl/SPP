@@ -6,8 +6,11 @@
 #include "process.h"
 #include "esp_now.h"
 #include "esp_now_receiver.h"
-#include "queue.h"
+#include "mqueue.h"
 
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
 
 void handle_kacuje(process_local_t *proc) {
     switch (proc->what_i_bring) {
@@ -147,7 +150,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             .mac_address = msg->header.from,
             .lamport_ts  = msg->header.ts,
         };
-        queue_insert(proc, &entry);
+        //mqueue_insert(proc, &entry);
 
         espnow_msg_t ack = {
             .header = {
@@ -172,7 +175,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                         .mac_address = proc->my_id,
                         .lamport_ts  = proc->lamport_ts,
                     };
-                    queue_insert(proc, &entry);
+                    //mqueue_insert(proc, &entry);
                     proc->state = JESTEM_W_KOLEJCE;
                 }
             }
@@ -207,7 +210,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                             break;
                         }
                     }
-                    assign_contributions(proc);
+                    // assign_contributions(proc); to be implemented
                     proc->state = IMPREZA;
                 }
             }
@@ -215,7 +218,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
 
             case IMPREZA:
                 if (msg->header.type == MSG_REL) {
-                    queue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
+                    //mqueue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
                     proc->state = KACUJE;
                 }
                 break;

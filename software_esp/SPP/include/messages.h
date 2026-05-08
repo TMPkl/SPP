@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <string.h>
+#include "deficits.h"
 
 #ifndef MESSAGES_H
 #define MESSAGES_H

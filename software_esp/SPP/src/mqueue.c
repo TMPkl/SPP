@@ -1,7 +1,9 @@
-#include "queue.h"
+#include <stdint.h>
+#include "process.h"
 #include <string.h>
+#include "mqueue.h"
 
-void queue_insert(process_local_t *proc, queue_entry_t *entry) {
+void mqueue_insert(process_local_t *proc, queue_entry_t *entry) {
     // znajdź miejsce do wstawienia (sortuj po ts, potem mac)
     int insert_pos = proc->queue_size;
     for (int i = 0; i < proc->queue_size; i++) {
@@ -23,7 +25,7 @@ void queue_insert(process_local_t *proc, queue_entry_t *entry) {
     proc->queue_size++;
 }
 
-void queue_remove_participants(process_local_t *proc, uint8_t *participants, uint8_t count) {
+void mqueue_remove_participants(process_local_t *proc, uint8_t *participants, uint8_t count) {
     for (int p = 0; p < count; p++) {
         for (int i = 0; i < proc->queue_size; i++) {
             if (proc->queue[i].mac_address == participants[p]) {

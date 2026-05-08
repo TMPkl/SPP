@@ -2,6 +2,7 @@
 #include <string.h>
 #include "deficits.h"
 #include "messages.h"
+#include <stdbool.h>
 
 #ifndef PROCESS_H
 #define PROCESS_H
