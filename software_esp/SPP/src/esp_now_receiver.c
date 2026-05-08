@@ -106,6 +106,21 @@ esp_err_t esp_now_receiver_init(void) {
         return ret;
     }
 
+    // Dodaj peera broadcast
+    esp_now_peer_info_t broadcast_peer = {
+        .channel = 0,
+        .ifidx = WIFI_IF_STA,
+        .encrypt = false,
+    };
+    memset(broadcast_peer.peer_addr, 0xFF, 6);
+    
+    ret = esp_now_add_peer(&broadcast_peer);
+    if (ret != ESP_OK && ret != ESP_ERR_ESPNOW_EXIST) {
+        ESP_LOGW(TAG, "Nie udało się dodać peera broadcast: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "Peer broadcast dodany pomyślnie");
+    }
+
     ESP_LOGI(TAG, "ESP-NOW inicjalizacja powodzona");
     return ESP_OK;
 }
@@ -117,7 +132,7 @@ esp_err_t esp_now_add_all_peers(void) {
     uint8_t own_device_id = own_mac[5];
     ESP_LOGI(TAG, "Adding peers - own device ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",own_device_id, own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
     
-    for (uint8_t device_id = 0; device_id < 10; device_id++) {
+    for (uint8_t device_id = 0; device_id < MAX_PEERS; device_id++) {
         if (device_id == own_device_id) {
             ESP_LOGI(TAG, "Skipping self (ID: %02X)", device_id);
             continue;

@@ -31,14 +31,19 @@ void message_task(void *arg) {
     while (1) {
         if (xQueueReceive(msg_queue, &raw, portMAX_DELAY)) {
             espnow_msg_t *msg = (espnow_msg_t *)raw.content;
+            ESP_LOGD(my_id, "message_task: Wiadomość od %02X:%02X:%02X:%02X:%02X:%02X type=%d",
+                    raw.sender_id[0], raw.sender_id[1], raw.sender_id[2],
+                    raw.sender_id[3], raw.sender_id[4], raw.sender_id[5], msg->header.type);
             on_message(&proc, msg);
         }
     }
 }
 
 void main_task(void *arg) {
+    proc.state = KACUJE;
     while (1) {
         tick(&proc);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -69,12 +74,29 @@ void app_main(void) {
     memset(&proc, 0, sizeof(proc));
     proc.my_id = (uint8_t)strtol((const char*)&my_id[6], NULL, 16);
     proc.state = KACUJE;
+    proc.ready_to_kac = false;
+    
+    ESP_LOGI(my_id, "[LT:0] ========== INICJALIZACJA PROCESU ID:%d ==========", proc.my_id);
 
     // kolejka wiadomości
-    msg_queue = xQueueCreate(10, sizeof(esp_now_message_t));
+    msg_queue = xQueueCreate(20, sizeof(esp_now_message_t));
 
     xTaskCreate(message_task, "msg_task",  4096, NULL, 5, NULL);
     xTaskCreate(main_task,    "main_task", 4096, NULL, 4, NULL);
+
+    // Wyślij broadcast "I'm ready"
+    vTaskDelay(pdMS_TO_TICKS(500));
+    espnow_msg_t ready_msg = {
+        .header = {
+            .type = MSG_READY,
+            .from = proc.my_id,
+            .ts   = ++proc.lamport_ts,
+        }
+    };
+    uint8_t broadcast_addr[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    esp_now_send(broadcast_addr, (uint8_t *)&ready_msg, sizeof(msg_header_t));
+
+    ESP_LOGI(my_id, "[LT:%llu] Wysłana wiadomość ready na broadcast, czekam na pozostałe urządzenia...", proc.lamport_ts);
 }
 
 

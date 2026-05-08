@@ -9,7 +9,7 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
-#define MAX_PROCESSES       10    
+#define MAX_PROCESSES       3    
 #define QUEUE_SIZE          MAX_PROCESSES
 #define PARTY_DURATION_MS 5000
 #define MAX_KACOWANIE_MS 10000
@@ -39,8 +39,12 @@ typedef struct {
     uint8_t queue_size;  
      
     uint8_t ack_count;  
+    bool request_sent;
     
     uint8_t hello_count;
+    
+    bool ready_to_kac;
+    uint8_t ready_count;
     
     uint8_t participants[CIRCLE_SIZE];
     bool is_organizer;

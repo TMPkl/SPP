@@ -4,7 +4,7 @@
 #include "esp_err.h"
 #include "esp_now.h"
 
-#define MAX_PEERS 10
+#define MAX_PEERS 3
 
 typedef struct {
     uint8_t sender_id[6];

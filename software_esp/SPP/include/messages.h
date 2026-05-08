@@ -11,6 +11,7 @@
 
 // typy wiadomości 
 typedef enum __attribute__((packed)) {
+    MSG_READY   = 0x00,
     MSG_REQ     = 0x01,
     MSG_ACK     = 0x02,
     MSG_REL     = 0x03,

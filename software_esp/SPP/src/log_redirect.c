@@ -10,7 +10,7 @@
 #include "log_redirect.h"
 #include "mac_manager.h"
 
-#define LOGGER_QUEUE_LEN 32
+#define LOGGER_QUEUE_LEN 256
 #define LOGGER_LINE_MAX 256
 #define LOGGER_TASK_STACK_SIZE 8192
 
@@ -58,13 +58,16 @@ static void post_log_line(const char *line)
     esp_http_client_config_t config = {
         .url = ingest_url,
         .method = HTTP_METHOD_POST,
-        .timeout_ms = 8000,
+        .timeout_ms = 2000,  // 2 sekundy dla lokalnej sieci
+        .keep_alive_enable = true,
     };
 
+    // Tylko krótki moment suppress żeby init nie zalogował
     suppress_capture = true;
     esp_http_client_handle_t client = esp_http_client_init(&config);
+    suppress_capture = false;  // Wznów zbieranie logów ASAP
+    
     if (client == NULL) {
-        suppress_capture = false;
         return;
     }
 
@@ -72,9 +75,9 @@ static void post_log_line(const char *line)
     esp_http_client_set_header(client, "X-Log-Token", ingest_token);
     esp_http_client_set_post_field(client, (const char *)payload_buf, payload_len);
 
+    // Perform bez retry - szybko, nie traci logów
     esp_http_client_perform(client);
     esp_http_client_cleanup(client);
-    suppress_capture = false;
 }
 
 static void enqueue_log_line(const char *raw_line)
@@ -99,17 +102,26 @@ static void enqueue_log_line(const char *raw_line)
     if (!has_content || j == 0) return;
     
     msg.line[j] = '\0';
-    (void)xQueueSend(logger_queue, &msg, 0);
+    // Czekaj (max 100ms) zamiast tracić logi
+    if (xQueueSend(logger_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGW("LOG_REDIR", "Logger queue full, dropped: %s", raw_line);
+    }
 }
 
 static void logger_http_task(void *arg)
 {
     (void)arg;
     logger_msg_t msg;
+    uint32_t sent = 0;
 
     while (1) {
         if (xQueueReceive(logger_queue, &msg, portMAX_DELAY) == pdTRUE) {
             post_log_line(msg.line);
+            sent++;
+            // Co 100 wysłanych logów wyślij podsumowanie
+            if (sent % 100 == 0) {
+                ESP_LOGI("LOG_REDIR", "Total sent: %lu", sent);
+            }
         }
     }
 }
