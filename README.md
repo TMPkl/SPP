@@ -1,5 +1,7 @@
 ### wiem, że nie od tego jest readme - na razie jest tutaj dziennik pokładowy
 
+# Opis programu i problemu: Tematy.md oraz opis.md
+
 # ADRESY MAC
 dodałem kod, który zapisuje proponowany MAC w pamięci NVS, a przy inicjowaniu po uruchomieniu odczytuje tę wartość i nadpisuje hardware'owy MAC. Zapis do NVS odbywa się tylko raz (patrz zakomentowany kawałek kodu na etapie inicjowania)
 
