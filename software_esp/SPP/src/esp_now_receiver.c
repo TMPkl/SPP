@@ -5,11 +5,14 @@
 #include "string.h"
 #include "mac_manager.h"
 #include "lamportTS.h"
+#include "freertos/queue.h"
 
 
 static const char *TAG = "ESP_NOW_RECEIVER";
 
 esp_now_peer_info_t peers_table[MAX_PEERS] = {};
+
+extern QueueHandle_t msg_queue;
 
 esp_now_peer_info_t* get_peer_by_id(uint8_t device_id) {
     if (device_id >= MAX_PEERS) return NULL;
@@ -22,27 +25,52 @@ void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, 
         return;
     }
 
-    // Update Lamport timestamp
     lamport_increment();
-    uint64_t local_ts = lamport_get_time();
 
     const uint8_t *mac_addr = recv_info->src_addr;
-    int msg_len = (data_len > 250) ? 250 : data_len;
+    ESP_LOGI(TAG, "Wiadomość od: %02X:%02X:%02X:%02X:%02X:%02X",
+             mac_addr[0], mac_addr[1], mac_addr[2],
+             mac_addr[3], mac_addr[4], mac_addr[5]);
 
-    ESP_LOGI(TAG, "Wiadomość od: %02X:%02X:%02X:%02X:%02X:%02X",mac_addr[0], mac_addr[1], mac_addr[2],mac_addr[3], mac_addr[4], mac_addr[5]);
+    // wrzuć na kolejkę do przetworzenia przez message_task
+    esp_now_message_t msg;
+    memcpy(msg.sender_id, recv_info->src_addr, 6);
+    int msg_len = (data_len > sizeof(msg.content)) ? sizeof(msg.content) : data_len;
+    memcpy(msg.content, data, msg_len);
+    msg.content_len = msg_len;
 
-    ESP_LOGI(TAG, "Zawartość- %d bajtów: %.*s",
-             msg_len, msg_len, (const char *)data);
-
-    if (data_len > 0) {
-        char hex_buffer[251 * 3];
-        int pos = 0;
-        for (int i = 0; i < msg_len; i++) {
-            pos += snprintf(hex_buffer + pos, sizeof(hex_buffer) - pos,"%02X ", data[i]);
-        }
-        ESP_LOGD(TAG, "Hex dump: %s", hex_buffer);
+    if (xQueueSendFromISR(msg_queue, &msg, NULL) != pdTRUE) {
+        ESP_LOGE(TAG, "Kolejka pełna, wiadomość odrzucona");
     }
 }
+
+//void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len) {
+//     if (recv_info == NULL || data == NULL) {
+//         ESP_LOGE(TAG, "Błędny wskaźnik: recv_info=%p, data=%p", recv_info, data);
+//         return;
+//     }
+
+//     // Update Lamport timestamp
+//     lamport_increment();
+//     uint64_t local_ts = lamport_get_time();
+
+//     const uint8_t *mac_addr = recv_info->src_addr;
+//     int msg_len = (data_len > 250) ? 250 : data_len;
+
+//     ESP_LOGI(TAG, "Wiadomość od: %02X:%02X:%02X:%02X:%02X:%02X",mac_addr[0], mac_addr[1], mac_addr[2],mac_addr[3], mac_addr[4], mac_addr[5]);
+
+//     ESP_LOGI(TAG, "Zawartość- %d bajtów: %.*s",
+//              msg_len, msg_len, (const char *)data);
+
+//     if (data_len > 0) {
+//         char hex_buffer[251 * 3];
+//         int pos = 0;
+//         for (int i = 0; i < msg_len; i++) {
+//             pos += snprintf(hex_buffer + pos, sizeof(hex_buffer) - pos,"%02X ", data[i]);
+//         }
+//         ESP_LOGD(TAG, "Hex dump: %s", hex_buffer);
+//     }
+// }
 
 esp_err_t esp_now_receiver_init(void) {
     esp_err_t ret;

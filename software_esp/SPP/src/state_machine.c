@@ -8,10 +8,25 @@
 #include "esp_now_receiver.h"
 #include "mqueue.h"
 #include "state_machine.h"
+#include "mac_manager.h"
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
+
+void set_state(process_local_t *proc, process_state_t new_state) {
+    const char *state_names[] = {
+        "KACUJE",
+        "WYSYLAM_REQ",
+        "JESTEM_W_KOLEJCE",
+        "UMAWIAM_IMPREZE",
+        "IMPREZA"
+    };
+    ESP_LOGI(my_id, "Zmieniam stan: %s -> %s", 
+             state_names[proc->state], 
+             state_names[new_state]);
+    proc->state = new_state;
+}
 
 void handle_kacuje(process_local_t *proc) {
     switch (proc->what_i_bring) {
@@ -30,7 +45,7 @@ void handle_kacuje(process_local_t *proc) {
     uint32_t delay = rand() % MAX_KACOWANIE_MS;
     vTaskDelay(pdMS_TO_TICKS(delay));
 
-    proc->state = WYSYLAM_REQ;
+    set_state(proc, WYSYLAM_REQ);
 }
 
 void handle_wysylam_req(process_local_t *proc) {
@@ -85,7 +100,7 @@ void handle_jestem_w_kolejce(process_local_t *proc) {
             esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg));
         }
 
-        proc->state = UMAWIAM_IMPREZE;
+        set_state(proc, UMAWIAM_IMPREZE);
     }
 }
 
@@ -129,8 +144,10 @@ void handle_impreza(process_local_t *proc) {
             esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg));
         }
 
-        proc->state = KACUJE;
-    } 
+        set_state(proc, KACUJE);
+    }  else {
+        xSemaphoreTake(proc->rel_semaphore, portMAX_DELAY);
+    }
 }
 
 void tick(process_local_t *proc) {
@@ -151,7 +168,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             .mac_address = msg->header.from,
             .lamport_ts  = msg->header.ts,
         };
-        mqueue_insert(proc, &entry);
+        //mqueue_insert(proc, &entry);
 
         espnow_msg_t ack = {
             .header = {
@@ -176,8 +193,8 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                         .mac_address = proc->my_id,
                         .lamport_ts  = proc->lamport_ts,
                     };
-                    //mqueue_insert(proc, &entry);
-                    proc->state = JESTEM_W_KOLEJCE;
+                    mqueue_insert(proc, &entry);
+                    set_state(proc, JESTEM_W_KOLEJCE);
                 }
             }
             break;
@@ -191,7 +208,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                         break;
                     }
                 }
-                proc->state = UMAWIAM_IMPREZE;
+                set_state(proc, UMAWIAM_IMPREZE);
             }
             break;
 
@@ -212,15 +229,16 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                         }
                     }
                     // assign_contributions(proc); to be implemented
-                    proc->state = IMPREZA;
+                    set_state(proc, IMPREZA);
                 }
             }
             break;
 
             case IMPREZA:
                 if (msg->header.type == MSG_REL) {
-                    //mqueue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
-                    proc->state = KACUJE;
+                    queue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
+                    set_state(proc, KACUJE);
+                    xSemaphoreGive(proc->rel_semaphore); 
                 }
                 break;
 

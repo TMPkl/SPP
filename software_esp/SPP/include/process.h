@@ -46,6 +46,7 @@ typedef struct {
     contribution_t what_i_bring;   
     deficit_t received_deficits[CIRCLE_SIZE];
 
+    SemaphoreHandle_t rel_semaphore;
     process_state_t state;  
     
 } process_local_t;
