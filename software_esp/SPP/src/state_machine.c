@@ -7,6 +7,7 @@
 #include "esp_now.h"
 #include "esp_now_receiver.h"
 #include "mqueue.h"
+#include "state_machine.h"
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -150,7 +151,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             .mac_address = msg->header.from,
             .lamport_ts  = msg->header.ts,
         };
-        //mqueue_insert(proc, &entry);
+        mqueue_insert(proc, &entry);
 
         espnow_msg_t ack = {
             .header = {
