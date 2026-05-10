@@ -1,26 +1,95 @@
-### wiem, że nie od tego jest readme - na razie jest tutaj dziennik pokładowy
+# Stowarzyszenie Upitych Artystów - System Synchronizacji Rozproszonej
 
-# ADRESY MAC
-dodałem kod, który zapisuje proponowany MAC w pamięci NVS, a przy inicjowaniu po uruchomieniu odczytuje tę wartość i nadpisuje hardware'owy MAC. Zapis do NVS odbywa się tylko raz (patrz zakomentowany kawałek kodu na etapie inicjowania)
+> **Status**: Projekt w trakcie realizacji
 
-dlaczego tak a nie eFuse? Znakomite pytanie, spieszę z odpowiedzią. Jak coś jest oznaczone jako UWAGA MOŻNA WYPALIĆ TYLKO RAZ TYLKO DLA OSÓB CO WIEDZĄ CO ROBIĄ, to ja wiem, że to nie dla mnie
+## About
 
-dlaczego zmiana MAC-a? Znakomite pytanie, spieszę z odpowiedzią. Te tanie klony mają często takie same MAC-i jak wychodzą z fabryki. Dodatkowo **zrobiłem tak, że w ostatnim bajcie jest schowany ID, który będzie wykorzystywany do identyfikacji w algorytmie** 
+Implementacja rozproszonego algorytmu synchronizacji dla sieci IoT opartej na zmodyfikowanym algorytmie Lamporta. System umożliwia dynamiczną formację grup procesów (kółek poetyckich), negocjację zasobów oraz koordynację działań między węzłami bez centralnego serwera.
 
-    {0xA0, 0x11, 0x84, 0xAA, 0x2C, **0x03**} 
-                                      / \ 
-                                       |
-                             urządzenie o id 3, dla id 10 będzie tam 0x0A
+## Problem
 
-# secrets.h
+P niezależnych procesów musi się automatycznie organizować w grupy o rozmiarze K, uzgadniać podział zasobów (alkohol, zagrycha, rola "sępa") zapewniając równomierny rozkład obowiązków. Każdy proces może losowo zdecydować się nie uczestniczyć, a czasem odpoczynku różni się dla każdego węzła.
 
-plik z oczywistych względów nie jest w repo, to jes ten co wysłałem w konwersacji. Musi znajdować się w `/software_esp/SPP/include/secrets.h`.
+> dokładny "fabularny" opis tutaj [tutaj](Tematy.md)
 
-# podgląd logów
-## na `https://logs.kaleszynski.xyz/` jest podgląd logów na żywo
+## Architektura
 
-strasznie dużo gimnastyki devopsowej bo router ma izolowane podsieci mimo opcji _separacja sieci wyłączona_. PRzez to musiało byc tunelowanie - esp robi posta na `logi.kaleszynski.xyz/event` a to tunelem idzie na server. Z uwagi na to że przechodzi to przez ten tunel a ja średnio umiem inaczej to poustawiać to REQUEST musiał być HTTPS, a wieć ESP to musi pakować. Dodałem klucz w secretach aby ktoś przypadkiem nam nie robił syfu. Zużywamy już 45% flasah wiec nie wiem czy nie będzie trzeba zrobić tego prościej.
+### Struktura kodu
 
-Logi działaja tak że wysyłają na serial + do servera, potem to zmienię aby wszystko szybiej chodziło.
+```
+software_esp/SPP/           Firmware ESP32 (C)
+├── src/                    Implementacja algorytmu
+│   ├── lamportTS.c         Zegar logiczny Lamporta
+│   ├── esp_now_receiver.c  Komunikacja bezpośrednia
+│   ├── state_machine.c     Obsługa stanów
+│   ├── mac_manager.c       Zarządzanie adresami MAC
+│   └── mqueue.c            Kolejka wiadomości
+└── include/                Headery, konfiguracja
 
-Jest też podwalina pod OTA, obecnie pod `logi.kaleszynski.xyz/ota` można pobrać jakąś losową binarkę, potem zrobię workflow aby ta z obecnej kompilacji tam leciała. Trzeba też dodać jakiś klucz do teg ota bo po dekomplikacji to widać wszystkie klucze do api I MOJEJ DOMOWEJ SIECI TEŻ.
+server/Serial_redirect/     Serwer (Go)
+└── main.go                 Tunel dla logów 
+```
+
+### Komunikacja
+
+- **ESP-NOW**: Bezpośrednia komunikacja między urządzeniami (bez WiFi)
+- **Kolejka rozproszona**: Utrzymywana przez każdy proces; porządek określony przez `(ts Lamporta, MAC)`
+- **Wiadomości**:
+  - `REQ` — żądanie dołączenia do kolejki
+  - `ACK` — potwierdzenie
+  - `WELCOME` — utworzenie kółka
+  - `HELLO` — uzgodnienie zasobów
+  - `REL` — zakończenie kółka i zwolnienie konjów
+
+## Algorytm
+
+### Stan maszyny
+
+> **więcej o tym w pliku [tutaj](opis.md)
+
+```
+KACUJE → WYSYLAM_REQ → JESTEM_W_KOLEJCE → UMAWIAM_IMPREZE → IMPREZA → KACUJE
+```
+
+- **KACUJE**: Odpoczynek (czas losowy)
+- **WYSYLAM_REQ**: Wysłanie żądania do wszystkich procesów, oczekiwanie na ACK
+- **JESTEM_W_KOLEJCE**: Monitoring pozycji w kolejce
+- **UMAWIAM_IMPREZE**: Negocjacja zasobów via `HELLO`
+- **IMPREZA**: Aktywna sekcja krytyczna
+- Po `REL`: Powrót do KACUJE
+
+### Przydzielanie zasobów
+
+Każdy proces ma **deficit** dla każdego zasobu. Algorytm:
+1. Procesy wymieniają się deficytami w `HELLO`
+2. Dla każdego zasobu — uczestnik z największym deficytem zostaje przydzielony
+3. Tablica przydziałów jest deterministyczna na wszystkich węzłach
+
+| K mod 3 | Sępi | Alkohol | Zagrycha |
+|---------|------|---------|----------|
+| 0       | K/3  | K/3     | K/3      |
+| 1       | K/3+1| K/3     | K/3      |
+| 2       | K/3+1| K/3+1   | K/3      |
+
+## Technologie
+
+- **Firmware**: ESP-IDF, FreeRTOS CMake, 
+- **Platforma**: ESP32-S3
+- **Komunikacja**: ESP-NOW, HTTP (logi)
+- **Synchronizacja**: Algorytm Lamporta (logiczne zegary), Kolejka top x procesów oparta na ping - pong
+- **Serwer**: Go (przekierowanie logów, strona, OTA (ostatecznie nieużywane ale endpoint jest gotowy))
+- **Storage**: NVS (zmieoniony MAC)
+
+## Funkcjonalności
+
+- [x] Algorytm decentralizacyjny 
+- [ ] Deterministyczne przydzielanie zasobów
+- [x] Zmieniony MAC z ID w ostatnim bajcie w pamięci NVM
+- [x] Przekirowanie logów przez HTTP
+- [x] Obsługa utraty wiadomości (zaimplementowane na potrzeby debugowania, potem z tego zrezygnujemy)
+- [ ] OTA updates (rezygnacja z implementacji)
+
+## Logi
+
+Logi dostępne na: `https://logs.kaleszynski.xyz/` (real-time)  **z racji na to że projekt jest nadal w budowie, urzadzenia nie sa podłączone 24/7**
+Wysyłane: UART + HTTP POST na `/event`
