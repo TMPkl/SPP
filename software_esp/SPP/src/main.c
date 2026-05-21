@@ -97,6 +97,9 @@ void app_main(void) {
     esp_now_send(broadcast_addr, (uint8_t *)&ready_msg, sizeof(msg_header_t));
 
     ESP_LOGI(my_id, "[LT:%llu] Wysłana wiadomość ready na broadcast, czekam na pozostałe urządzenia...", proc.lamport_ts);
+
+    // Enable log queuing AFTER initialization complete
+    tcp_logger_enable_queuing();
 }
 
 

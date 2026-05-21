@@ -116,11 +116,14 @@ static void logger_http_task(void *arg)
 
     while (1) {
         if (xQueueReceive(logger_queue, &msg, portMAX_DELAY) == pdTRUE) {
-            post_log_line(msg.line);
-            sent++;
-            // Co 100 wysłanych logów wyślij podsumowanie
-            if (sent % 100 == 0) {
-                ESP_LOGI("LOG_REDIR", "Total sent: %lu", sent);
+            // Only send if queuing is enabled (after initialization)
+            if (logger_ready) {
+                post_log_line(msg.line);
+                sent++;
+                // Co 100 wysłanych logów wyślij podsumowanie
+                if (sent % 100 == 0) {
+                    ESP_LOGI("LOG_REDIR", "Total sent: %lu", sent);
+                }
             }
         }
     }
@@ -168,7 +171,12 @@ esp_err_t tcp_logger_connect(const char *url, const char *token)
 
     snprintf(ingest_url, sizeof(ingest_url), "%s", url);
     snprintf(ingest_token, sizeof(ingest_token), "%s", token);
-    logger_ready = true;
+    // logger_ready NOT set here - will be enabled after initialization
 
     return ESP_OK;
+}
+
+void tcp_logger_enable_queuing(void)
+{
+    logger_ready = true;
 }

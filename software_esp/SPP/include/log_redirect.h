@@ -7,6 +7,7 @@
 
 void init_tcp_logger();
 esp_err_t tcp_logger_connect(const char *ingest_url, const char *ingest_token);
+void tcp_logger_enable_queuing(void);
 
 // Custom logging macros with Lamport Timestamp
 #undef ESP_LOGI
