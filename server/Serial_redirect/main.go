@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 const colorReset = "\033[0m"
@@ -95,7 +96,7 @@ func (h *eventHub) subscribe() chan logEvent {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	ch := make(chan logEvent, 128)
+	ch := make(chan logEvent, 512)
 	h.subscribers[ch] = struct{}{}
 	return ch
 }
@@ -117,8 +118,15 @@ func (h *eventHub) broadcast(event logEvent) {
 	for ch := range h.subscribers {
 		select {
 		case ch <- event:
+			// Successfully sent
 		default:
-			// Slow client: drop the event instead of blocking all senders.
+			// Slow client: try once more with timeout, then log and skip
+			select {
+			case ch <- event:
+				// Sent on second try
+			case <-time.After(100 * time.Millisecond):
+				fmt.Printf("[WARN] Client dropped event: %s (queue full)\n", event.Line)
+			}
 		}
 	}
 }
@@ -240,6 +248,9 @@ func handle(conn net.Conn) {
 
 	addr := conn.RemoteAddr().String()
 
+	// Ustaw timeout dla czytania
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
 	reader := bufio.NewReader(conn)
 
 	id, err := reader.ReadString('\n')
@@ -259,6 +270,9 @@ func handle(conn net.Conn) {
 
 	// 2. Czytaj logi
 	for {
+		// Reset timeout dla każdej linii
+		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Printf("%sDisconnected: %s (%s)%s\n", style.ansi, id, addr, colorReset)
@@ -393,6 +407,7 @@ const indexHTML = `<!doctype html>
 			color: var(--muted);
 			font-style: italic;
 		}
+
 	</style>
 </head>
 <body>
@@ -401,6 +416,7 @@ const indexHTML = `<!doctype html>
 			<div class="title">ESP Live Logs</div>
 			<div id="status" class="status">Connecting...</div>
 		</div>
+		
 		<div class="panel">
 			<div id="logs"></div>
 		</div>
@@ -410,7 +426,7 @@ const indexHTML = `<!doctype html>
 		const logs = document.getElementById('logs');
 		const status = document.getElementById('status');
 
-		function addRow(msg) {
+		function createRow(msg) {
 			const row = document.createElement('div');
 			row.className = 'row';
 
@@ -429,8 +445,7 @@ const indexHTML = `<!doctype html>
 			}
 			row.appendChild(text);
 
-			logs.appendChild(row);
-			logs.scrollTop = logs.scrollHeight;
+			return row;
 		}
 
 		const source = new EventSource('/events');
@@ -439,7 +454,8 @@ const indexHTML = `<!doctype html>
 		source.onmessage = (event) => {
 			try {
 				const msg = JSON.parse(event.data);
-				addRow(msg);
+				logs.appendChild(createRow(msg));
+				logs.scrollTop = logs.scrollHeight;
 			} catch (_) {}
 		};
 	</script>
