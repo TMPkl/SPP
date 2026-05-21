@@ -10,6 +10,7 @@
 #include "mqueue.h"
 #include "state_machine.h"
 #include "mac_manager.h"
+#include "disposition.h"
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -41,6 +42,9 @@ void handle_kacuje(process_local_t *proc) {
         case ALKOHOL:  proc->my_deficits.alko++;     break;
         case ZAGRYCHA: proc->my_deficits.zagrycha++; break;
     }
+    
+    // Inkrementuj liczbę imprez w których braliśmy udział
+    proc->my_deficits.num_parties++;
 
     proc->ack_count = 0;
     proc->request_sent = false;  // Reset flagi dla następnego cyklu
@@ -285,7 +289,12 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                             break;
                         }
                     }
-                    ESP_LOGI(my_id, "[LT:%llu] Wszyscy wysłali HELLO! Przechodzę do IMPREZA", proc->lamport_ts);
+                    ESP_LOGI(my_id, "[LT:%llu] Wszyscy wysłali HELLO! Obliczam podział zasobów...", proc->lamport_ts);
+                    
+                    // Uruchom algorytm podziału zasobów
+                    disposition(proc);
+                    
+                    ESP_LOGI(my_id, "[LT:%llu] Przechodzę do IMPREZA", proc->lamport_ts);
                     set_state(proc, IMPREZA);
                 }
             }
@@ -306,3 +315,4 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             break;
     }
 }
+

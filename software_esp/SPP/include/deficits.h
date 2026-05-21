@@ -5,9 +5,10 @@
 #define DEFICITS_H
 
 typedef struct __attribute__((packed)) {
-    uint8_t sep;
-    uint8_t alko;     
+    uint8_t sep;     
+    uint8_t alko;   
     uint8_t zagrycha; 
+    uint8_t num_parties;  
 } deficit_t;
 
 #endif // DEFICITS_H
