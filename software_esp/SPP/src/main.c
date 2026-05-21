@@ -75,6 +75,7 @@ void app_main(void) {
     proc.my_id = (uint8_t)strtol((const char*)&my_id[6], NULL, 16);
     proc.state = KACUJE;
     proc.ready_to_kac = false;
+    proc.ready_count = 0;
     
     ESP_LOGI(my_id, "[LT:0] ========== INICJALIZACJA PROCESU ID:%d ==========", proc.my_id);
 
