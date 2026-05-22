@@ -205,8 +205,10 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
         
         if (proc->ready_count >= MAX_PEERS && !proc->ready_to_kac) {
             proc->ready_to_kac = true;
+            lamport_increment();
             ESP_LOGI(my_id, "[LT:%llu] ★★★ BARIERA OSIĄGNIĘTA! ★★★ Wszystkie %d urządzenia gotowe, BEGIN!", 
                     proc->lamport_ts, MAX_PEERS);
+            
         }
         return;
     }

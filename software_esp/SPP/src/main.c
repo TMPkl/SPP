@@ -52,7 +52,7 @@ void app_main(void) {
 
     init_tcp_logger();
 
-    #if USEZLOTA
+     #if USEZLOTA
     while (tcp_logger_connect(ZLOTA_LOG_INGEST_URL, LOG_INGEST_TOKEN) != ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -67,8 +67,18 @@ void app_main(void) {
     esp_now_receiver_init();
     esp_now_add_all_peers();
 
-    gpio_reset_pin(BLINK_GPIO);
-    gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+        gpio_reset_pin(BLINK_GPIO);
+        gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+
+        // Wyczyść kolejkę logów z inicjalizacji - nie chcemy ich wysyłać
+        // extern QueueHandle_t logger_queue;  // Zadeklarowane w log_redirect.c
+        // if (logger_queue != NULL) {
+        //     char dummy[256];
+        //     while (xQueueReceive(logger_queue, dummy, 0) == pdTRUE) {
+        //         // Wyrzuć wszystkie stare logi
+        //     }
+        // }
+
 
     // inicjalizacja procesu
     memset(&proc, 0, sizeof(proc));
@@ -96,12 +106,11 @@ void app_main(void) {
     };
     uint8_t broadcast_addr[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     esp_now_send(broadcast_addr, (uint8_t *)&ready_msg, sizeof(msg_header_t));
+    proc.ready_count++;  // Licz siebie jako gotowego braodcast nie wysła do siebie 
 
     ESP_LOGI(my_id, "[LT:%llu] Wysłana wiadomość ready na broadcast, czekam na pozostałe urządzenia...", proc.lamport_ts);
-
-    // Enable log queuing AFTER initialization complete
-    tcp_logger_enable_queuing();
 }
+
 
 
 
