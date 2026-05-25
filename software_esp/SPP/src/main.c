@@ -43,11 +43,16 @@ void main_task(void *arg) {
     proc.state = KACUJE;
     while (1) {
         tick(&proc);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
 }
 
 void app_main(void) {
+
+    esp_log_level_set("transport_base", ESP_LOG_NONE);
+    esp_log_level_set("HTTP_CLIENT", ESP_LOG_NONE);
+    esp_log_level_set("esp-tls", ESP_LOG_NONE);
+
     wifi_init_sta();
 
     init_tcp_logger();
@@ -67,8 +72,6 @@ void app_main(void) {
     esp_now_receiver_init();
     esp_now_add_all_peers();
 
-        gpio_reset_pin(BLINK_GPIO);
-        gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 
         // Wyczyść kolejkę logów z inicjalizacji - nie chcemy ich wysyłać
         // extern QueueHandle_t logger_queue;  // Zadeklarowane w log_redirect.c

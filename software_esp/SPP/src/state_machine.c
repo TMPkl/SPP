@@ -11,6 +11,7 @@
 #include "state_machine.h"
 #include "mac_manager.h"
 #include "disposition.h"
+#include "lamportTS.h"
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -37,11 +38,7 @@ void handle_kacuje(process_local_t *proc) {
     }
 
     const char *contrib[] = {"SEPIA", "ALKOHOL", "ZAGRYCHA"};
-    switch (proc->what_i_bring) {
-        case SEPIA:    proc->my_deficits.sep++;      break;
-        case ALKOHOL:  proc->my_deficits.alko++;     break;
-        case ZAGRYCHA: proc->my_deficits.zagrycha++; break;
-    }
+    
     
     // Inkrementuj liczbę imprez w których braliśmy udział
     proc->my_deficits.num_parties++;
@@ -54,13 +51,13 @@ void handle_kacuje(process_local_t *proc) {
     proc->is_organizer = false;
     proc->hello_count = 0;
 
-    uint32_t delay = rand() % MAX_KACOWANIE_MS;
-    ESP_LOGI(my_id, "[LT:%llu] KACUJE: Przynoszę %s, czekam %lu ms", 
-             proc->lamport_ts, contrib[proc->what_i_bring], delay);
+    uint32_t delay = rand()  % MAX_KACOWANIE_MS;
+    ESP_LOGI(my_id, "[LT:%llu] KACUJE:  czekam %lu ms", 
+             proc->lamport_ts, delay);
     vTaskDelay(pdMS_TO_TICKS(delay));
 
-    set_state(proc, WYSYLAM_REQ);
-}
+        set_state(proc, WYSYLAM_REQ);
+    }
 
 void handle_wysylam_req(process_local_t *proc) {
     // Wysyślij REQ tylko raz
@@ -77,7 +74,7 @@ void handle_wysylam_req(process_local_t *proc) {
     };
 
     ESP_LOGI(my_id, "[LT:%llu] WYSYLAM_REQ: Wysyłam prośbę do wszystkich", proc->lamport_ts);
-    for (uint8_t i = 0; i < MAX_PEERS; i++) {
+    for (int i = 0; i < 256; i++) {
         esp_now_peer_info_t *peer = get_peer_by_id(i);
         if (peer == NULL) continue;
         esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg_header_t));
@@ -168,7 +165,7 @@ void handle_impreza(process_local_t *proc) {
         memcpy(msg.payload.rel.participants, proc->participants, sizeof(proc->participants));
 
         ESP_LOGI(my_id, "[LT:%llu] IMPREZA skończona! Wysyłam REL jako organizator", proc->lamport_ts);
-        for (uint8_t i = 0; i < MAX_PEERS; i++) {
+        for (int i = 0; i < 256; i++) {
             esp_now_peer_info_t *peer = get_peer_by_id(i);
             if (peer == NULL) continue;
             esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg));
@@ -190,29 +187,36 @@ void tick(process_local_t *proc) {
         case UMAWIAM_IMPREZE:   handle_umawiam_impreze(proc); break;
         case IMPREZA:           handle_impreza(proc);         break;
     }
+    vTaskDelay(pdMS_TO_TICKS(10));  // Mały delay, aby nie zająć całego CPU
 }
 
 void on_message(process_local_t *proc, espnow_msg_t *msg) {
-    const char *msg_types[] = {"READY", "REQ", "ACK", "REL", "WELCOME", "HELLO"};
-    
     proc->lamport_ts = MAX(proc->lamport_ts, msg->header.ts) + 1;
 
-    // Obsłuż MSG_READY - bariera synchronizacyjna
+    // ========== OBSŁUGA MSG_READY - BARIERA ==========
     if (msg->header.type == MSG_READY) {
         proc->ready_count++;
         ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_READY od %d, ready_count=%d/%d", 
-                 proc->lamport_ts, msg->header.from, proc->ready_count, MAX_PEERS);
+                 proc->lamport_ts, msg->header.from, proc->ready_count, MAX_PEERS - 1);
         
-        if (proc->ready_count >= MAX_PEERS && !proc->ready_to_kac) {
+        // Bariera: czekamy na N-1 (wszyscy oprócz siebie)
+        if (proc->ready_count >= MAX_PEERS - 1 && !proc->ready_to_kac) {
             proc->ready_to_kac = true;
-            lamport_increment();
             ESP_LOGI(my_id, "[LT:%llu] ★★★ BARIERA OSIĄGNIĘTA! ★★★ Wszystkie %d urządzenia gotowe, BEGIN!", 
                     proc->lamport_ts, MAX_PEERS);
-            
         }
         return;
     }
 
+    // ========== EARLY BARRIER RELEASE ==========
+    // Jeśli otrzymujemy JAKĄKOLWIEK inną wiadomość, ktoś przeszedł przez barierę
+    if (!proc->ready_to_kac) {
+        ESP_LOGI(my_id, "[LT:%llu] Otrzymano %d, zdejmuję barierę (ktoś już zaczął)", 
+                 proc->lamport_ts, msg->header.type);
+        proc->ready_to_kac = true;
+    }
+
+    // ========== OBSŁUGA MSG_REQ ==========
     if (msg->header.type == MSG_REQ) {
         ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_REQ od %d, queue_size=%d", 
                  proc->lamport_ts, msg->header.from, proc->queue_size + 1);
@@ -237,6 +241,7 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
         return;
     }
 
+    // ========== OBSŁUGA SPECYFICZNA DLA STANU ==========
     switch (proc->state) {
         case WYSYLAM_REQ:
             if (msg->header.type == MSG_ACK) {
@@ -292,26 +297,23 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                         }
                     }
                     ESP_LOGI(my_id, "[LT:%llu] Wszyscy wysłali HELLO! Obliczam podział zasobów...", proc->lamport_ts);
-                    
-                    // Uruchom algorytm podziału zasobów
                     disposition(proc);
-                    
                     ESP_LOGI(my_id, "[LT:%llu] Przechodzę do IMPREZA", proc->lamport_ts);
                     set_state(proc, IMPREZA);
                 }
             }
             break;
 
-            case IMPREZA:
-                if (msg->header.type == MSG_REL) {
-                    ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_REL od organizatora %d, impreza się kończy", 
-                             proc->lamport_ts, msg->header.from);
-                    
-                    mqueue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
-                    set_state(proc, KACUJE);
-                    xSemaphoreGive(proc->rel_semaphore); 
-                }
-                break;
+        case IMPREZA:
+            if (msg->header.type == MSG_REL) {
+                ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_REL od organizatora %d, impreza się kończy", 
+                         proc->lamport_ts, msg->header.from);
+                
+                mqueue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
+                set_state(proc, KACUJE);
+                xSemaphoreGive(proc->rel_semaphore); 
+            }
+            break;
 
         default:
             break;

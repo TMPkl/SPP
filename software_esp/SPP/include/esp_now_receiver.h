@@ -12,7 +12,7 @@ typedef struct {
     uint8_t content_len;
 } esp_now_message_t;
 
-extern esp_now_peer_info_t peers_table[MAX_PEERS];
+extern esp_now_peer_info_t peers_table[256];
 
 esp_err_t esp_now_receiver_init(void);
 

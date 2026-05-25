@@ -12,7 +12,7 @@
 #define MAX_PROCESSES       3    
 #define QUEUE_SIZE          MAX_PROCESSES
 #define PARTY_DURATION_MS 5000
-#define MAX_KACOWANIE_MS 10000
+#define MAX_KACOWANIE_MS 50000
 
 typedef enum {
     KACUJE,   

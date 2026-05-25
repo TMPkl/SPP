@@ -17,6 +17,7 @@ typedef enum __attribute__((packed)) {
     MSG_REL     = 0x03,
     MSG_WELCOME = 0x04,
     MSG_HELLO   = 0x05,
+    
 } msg_type_t;
 
 //te podstawowe dane do wszystkich wiadomości

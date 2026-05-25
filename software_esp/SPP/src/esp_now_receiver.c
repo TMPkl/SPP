@@ -10,12 +10,21 @@
 
 static const char *TAG = "ESP_NOW_RECEIVER";
 
-esp_now_peer_info_t peers_table[MAX_PEERS] = {};
+esp_now_peer_info_t peers_table[256] = {};
 
 extern QueueHandle_t msg_queue;
 
 esp_now_peer_info_t* get_peer_by_id(uint8_t device_id) {
-    if (device_id >= MAX_PEERS) return NULL;
+    // Sprawdzamy czy adres MAC nie jest zerowy
+    bool is_empty = true;
+    for (int i = 0; i < 6; i++) {
+        if (peers_table[device_id].peer_addr[i] != 0) {
+            is_empty = false;
+            break;
+        }
+    }
+    if (is_empty) return NULL;
+    
     return &peers_table[device_id];
 }
 
@@ -125,6 +134,9 @@ esp_err_t esp_now_receiver_init(void) {
     return ESP_OK;
 }
 
+const uint8_t known_peers[] = {0x08, 0x09, 0x0A}; // UWAGA HARDOCDED NA POTRZEY DEBUGU POPRAW POPRAWIC 
+const uint8_t num_known_peers = sizeof(known_peers) / sizeof(known_peers[0]);
+
 esp_err_t esp_now_add_all_peers(void) {
     uint8_t own_mac[6];
     get_current_mac(own_mac);
@@ -132,7 +144,8 @@ esp_err_t esp_now_add_all_peers(void) {
     uint8_t own_device_id = own_mac[5];
     ESP_LOGI(TAG, "Adding peers - own device ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",own_device_id, own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
     
-    for (uint8_t device_id = 0; device_id < MAX_PEERS; device_id++) {
+    for (uint8_t i = 0; i < num_known_peers; i++) {
+        uint8_t device_id = known_peers[i];
         if (device_id == own_device_id) {
             ESP_LOGI(TAG, "Skipping self (ID: %02X)", device_id);
             continue;
