@@ -22,4 +22,6 @@ esp_err_t esp_now_add_all_peers(void);
 
 esp_now_peer_info_t* get_peer_by_id(uint8_t device_id);
 
+void send_to_all_peers(const uint8_t *data, size_t len);
+
 #endif // ESP_NOW_RECEIVER_H

@@ -34,6 +34,13 @@ void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, 
         return;
     }
 
+    // Odrzuć wiadomości od siebie samego (mogą dotrzeć przez broadcast lub pętlę)
+    uint8_t own_mac[6];
+    get_current_mac(own_mac);
+    if (memcmp(recv_info->src_addr, own_mac, 6) == 0) {
+        return;
+    }
+
     lamport_increment();
 
     const uint8_t *mac_addr = recv_info->src_addr;
@@ -134,40 +141,67 @@ esp_err_t esp_now_receiver_init(void) {
     return ESP_OK;
 }
 
-const uint8_t known_peers[] = {0x08, 0x09, 0x0A}; // UWAGA HARDOCDED NA POTRZEY DEBUGU POPRAW POPRAWIC 
-const uint8_t num_known_peers = sizeof(known_peers) / sizeof(known_peers[0]);
+// Stały prefiks MAC wspólny dla wszystkich urządzeń (A0:11:84:AA:2C:XX)
+static const uint8_t MAC_BASE[5] = {0xA0, 0x11, 0x84, 0xAA, 0x2C};
+
+// Wszystkie znane ID urządzeń (ostatni bajt MAC)
+static const uint8_t known_peers[] = {0x01, 0x02, 0x03, 0x04, 0x05,
+                                       0x06, 0x07, 0x08, 0x09, 0x0A};
+static const uint8_t num_known_peers = sizeof(known_peers) / sizeof(known_peers[0]);
 
 esp_err_t esp_now_add_all_peers(void) {
     uint8_t own_mac[6];
     get_current_mac(own_mac);
-    
     uint8_t own_device_id = own_mac[5];
-    ESP_LOGI(TAG, "Adding peers - own device ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",own_device_id, own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
-    
+
+    ESP_LOGI(TAG, "Adding peers - own device ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",
+             own_device_id, own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]);
+
     for (uint8_t i = 0; i < num_known_peers; i++) {
         uint8_t device_id = known_peers[i];
         if (device_id == own_device_id) {
             ESP_LOGI(TAG, "Skipping self (ID: %02X)", device_id);
             continue;
         }
-        
+
         uint8_t peer_mac[6];
-        memcpy(peer_mac, own_mac, 6);
+        memcpy(peer_mac, MAC_BASE, 5);
         peer_mac[5] = device_id;
-        
+
         esp_now_peer_info_t peer = {};
         memcpy(peer.peer_addr, peer_mac, 6);
         peer.channel = 0;
         peer.ifidx = WIFI_IF_STA;
         peer.encrypt = false;
-        
-        if (esp_now_add_peer(&peer) != ESP_OK) {
+
+        esp_err_t ret = esp_now_add_peer(&peer);
+        if (ret != ESP_OK && ret != ESP_ERR_ESPNOW_EXIST) {
             ESP_LOGE(TAG, "Failed to add peer ID: %02X", device_id);
         } else {
             memcpy(&peers_table[device_id], &peer, sizeof(esp_now_peer_info_t));
-            ESP_LOGI(TAG, "Added peer ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",device_id, peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
+            ESP_LOGI(TAG, "Added peer ID: %02X (MAC: %02X:%02X:%02X:%02X:%02X:%02X)",
+                     device_id, peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
         }
     }
-    
+
     return ESP_OK;
+}
+
+void send_to_all_peers(const uint8_t *data, size_t len) {
+    uint8_t own_mac[6];
+    get_current_mac(own_mac);
+    uint8_t own_device_id = own_mac[5];
+
+    for (uint8_t i = 0; i < num_known_peers; i++) {
+        uint8_t device_id = known_peers[i];
+        if (device_id == own_device_id) continue;
+
+        esp_now_peer_info_t *peer = get_peer_by_id(device_id);
+        if (peer == NULL) continue;
+
+        esp_err_t ret = esp_now_send(peer->peer_addr, data, len);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "send_to_all: błąd wysyłki do ID %02X: %s", device_id, esp_err_to_name(ret));
+        }
+    }
 }

@@ -38,10 +38,11 @@ typedef struct {
     queue_entry_t queue[QUEUE_SIZE]; 
     uint8_t queue_size;  
      
-    uint8_t ack_count;  
+    uint8_t ack_count;
     bool request_sent;
-    
+
     uint8_t hello_count;
+    bool hello_sent;
     
     bool ready_to_kac;
     uint8_t ready_count;

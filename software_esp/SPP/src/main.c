@@ -89,6 +89,7 @@ void app_main(void) {
     proc.state = KACUJE;
     proc.ready_to_kac = false;
     proc.ready_count = 0;
+    proc.rel_semaphore = xSemaphoreCreateBinary();
     
     ESP_LOGI(my_id, "[LT:0] ========== INICJALIZACJA PROCESU ID:%d ==========", proc.my_id);
 
@@ -107,11 +108,10 @@ void app_main(void) {
             .ts   = ++proc.lamport_ts,
         }
     };
-    uint8_t broadcast_addr[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    esp_now_send(broadcast_addr, (uint8_t *)&ready_msg, sizeof(msg_header_t));
-    proc.ready_count++;  // Licz siebie jako gotowego braodcast nie wysła do siebie 
+    send_to_all_peers((uint8_t *)&ready_msg, sizeof(msg_header_t));
+    proc.ready_count++;  // Licz siebie jako gotowego
 
-    ESP_LOGI(my_id, "[LT:%llu] Wysłana wiadomość ready na broadcast, czekam na pozostałe urządzenia...", proc.lamport_ts);
+    ESP_LOGI(my_id, "[LT:%llu] Wysłano MSG_READY do wszystkich peers, czekam na pozostałe urządzenia...", proc.lamport_ts);
 }
 
 

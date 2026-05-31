@@ -43,13 +43,16 @@ void handle_kacuje(process_local_t *proc) {
     // Inkrementuj liczbę imprez w których braliśmy udział
     proc->my_deficits.num_parties++;
 
+    // Reset tylko zmiennych sterujących cyklem — kolejki NIE resetujemy tutaj.
+    // REQ-i od innych urządzeń mogły już trafić do kolejki podczas czekania na barierę;
+    // ich usunięcie zepsułoby porządek Lamporta. Kolejka czyszczona jest przez
+    // mqueue_remove_participants po zakończeniu imprezy.
     proc->ack_count = 0;
-    proc->request_sent = false;  // Reset flagi dla następnego cyklu
-    proc->queue_size = 0;
-    memset(proc->queue, 0, sizeof(proc->queue));
+    proc->request_sent = false;
     memset(proc->participants, 0, sizeof(proc->participants));
     proc->is_organizer = false;
     proc->hello_count = 0;
+    proc->hello_sent = false;
 
     uint32_t delay = rand()  % MAX_KACOWANIE_MS;
     ESP_LOGI(my_id, "[LT:%llu] KACUJE:  czekam %lu ms", 
@@ -128,26 +131,26 @@ void handle_jestem_w_kolejce(process_local_t *proc) {
 }
 
 void handle_umawiam_impreze(process_local_t *proc) {
-    if (!proc->is_organizer) {
-        espnow_msg_t msg = {
-            .header = {
-                .type = MSG_HELLO,
-                .from = proc->my_id,
-                .ts   = ++proc->lamport_ts,
-            },
-            .payload.hello = {
-                .my_deficit = proc->my_deficits,
-            }
-        };
+    if (proc->hello_sent) return;
 
-        ESP_LOGI(my_id, "[LT:%llu] UMAWIAM_IMPREZE: Wysyłam HELLO (%u/%u)", 
-                 proc->lamport_ts, proc->hello_count + 1, CIRCLE_SIZE - 1);
-        for (int i = 0; i < CIRCLE_SIZE; i++) {
-            esp_now_peer_info_t *peer = get_peer_by_id(proc->participants[i]);
-            if (peer == NULL) continue;
-            esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg));
+    espnow_msg_t msg = {
+        .header = {
+            .type = MSG_HELLO,
+            .from = proc->my_id,
+            .ts   = ++proc->lamport_ts,
+        },
+        .payload.hello = {
+            .my_deficit = proc->my_deficits,
         }
+    };
+
+    ESP_LOGI(my_id, "[LT:%llu] UMAWIAM_IMPREZE: Wysyłam HELLO", proc->lamport_ts);
+    for (int i = 0; i < CIRCLE_SIZE; i++) {
+        esp_now_peer_info_t *peer = get_peer_by_id(proc->participants[i]);
+        if (peer == NULL) continue;  // pomija siebie (brak w peers_table)
+        esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg));
     }
+    proc->hello_sent = true;
 }
 
 void handle_impreza(process_local_t *proc) {
