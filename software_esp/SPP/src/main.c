@@ -109,7 +109,7 @@ void app_main(void) {
         }
     };
     send_to_all_peers((uint8_t *)&ready_msg, sizeof(msg_header_t));
-    proc.ready_count++;  // Licz siebie jako gotowego
+    // proc.ready_count++;  // Licz siebie jako gotowego  NIE MUSZE JUZ TEGO ROBIC BO INACZEJ NAPISALME BARIRE W SRODKU
 
     ESP_LOGI(my_id, "[LT:%llu] Wysłano MSG_READY do wszystkich peers, czekam na pozostałe urządzenia...", proc.lamport_ts);
 }

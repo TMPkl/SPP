@@ -17,6 +17,21 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
+// Stałe czasowe — zdefiniuj je w config.h; te wartości są fallbackiem.
+// MIN_KACOWANIE_MS : minimalne odczekanie przed wysłaniem REQ
+// MAX_KACOWANIE_MS : maksymalne odczekanie (musi być > MIN)
+// REL_GRACE_PERIOD_MS : ile ms organizator czeka po wysłaniu REL zanim wróci
+//                       do KACUJE — musi dać uczestnikom czas na przetworzenie REL
+#ifndef MIN_KACOWANIE_MS
+#define MIN_KACOWANIE_MS   5000
+#endif
+#ifndef MAX_KACOWANIE_MS
+#define MAX_KACOWANIE_MS  10000
+#endif
+#ifndef REL_GRACE_PERIOD_MS
+#define REL_GRACE_PERIOD_MS 1500
+#endif
+
 void set_state(process_local_t *proc, process_state_t new_state) {
     const char *state_names[] = {
         "KACUJE",
@@ -33,18 +48,22 @@ void set_state(process_local_t *proc, process_state_t new_state) {
 
 void handle_kacuje(process_local_t *proc) {
 
-    if(!proc->ready_to_kac){
-        return; // Czekaj aż wszyscy będą gotowi do kacowanie to jest ta bariera
+    if (!proc->ready_to_kac) {
+        return; // Czekaj aż wszyscy będą gotowi — bariera startowa
     }
 
-    const char *contrib[] = {"SEPIA", "ALKOHOL", "ZAGRYCHA"};
-    
-    
+    // Guard: tick() woła handle_kacuje co 250ms — bez flagi każde wywołanie
+    // robiłoby reset i num_parties++, co skutkuje podwójnymi wpisami w kolejce.
+    if (proc->kac_in_progress) {
+        return;
+    }
+    proc->kac_in_progress = true;
+
     // Inkrementuj liczbę imprez w których braliśmy udział
     proc->my_deficits.num_parties++;
 
-    // Reset tylko zmiennych sterujących cyklem — kolejki NIE resetujemy tutaj.
-    // REQ-i od innych urządzeń mogły już trafić do kolejki podczas czekania na barierę;
+    // Reset zmiennych sterujących cyklem — kolejki NIE resetujemy tutaj.
+    // REQ-i od innych urządzeń mogły już trafić do kolejki podczas kacowania;
     // ich usunięcie zepsułoby porządek Lamporta. Kolejka czyszczona jest przez
     // mqueue_remove_participants po zakończeniu imprezy.
     proc->ack_count = 0;
@@ -54,13 +73,13 @@ void handle_kacuje(process_local_t *proc) {
     proc->hello_count = 0;
     proc->hello_sent = false;
 
-    uint32_t delay = rand()  % MAX_KACOWANIE_MS;
-    ESP_LOGI(my_id, "[LT:%llu] KACUJE:  czekam %lu ms", 
-             proc->lamport_ts, delay);
+    uint32_t delay = MIN_KACOWANIE_MS + (rand() % (MAX_KACOWANIE_MS - MIN_KACOWANIE_MS));
+    ESP_LOGI(my_id, "[LT:%llu] KACUJE:  czekam %lu ms", proc->lamport_ts, delay);
     vTaskDelay(pdMS_TO_TICKS(delay));
 
-        set_state(proc, WYSYLAM_REQ);
-    }
+    proc->kac_in_progress = false;
+    set_state(proc, WYSYLAM_REQ);
+}
 
 void handle_wysylam_req(process_local_t *proc) {
     // Wysyślij REQ tylko raz
@@ -174,6 +193,12 @@ void handle_impreza(process_local_t *proc) {
             esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg));
         }
 
+        // Daj uczestnikom czas na przetworzenie REL i wyjście z UMAWIAM_IMPREZE/IMPREZA
+        // zanim wyślemy nowy REQ — bez tego organizator wchodzi do kolejki zbyt szybko
+        // i wciąga uczestników którzy jeszcze nie skończyli poprzedniego cyklu.
+        ESP_LOGI(my_id, "[LT:%llu] Czekam na synchronizację uczestników po REL...", proc->lamport_ts);
+        vTaskDelay(pdMS_TO_TICKS(REL_GRACE_PERIOD_MS));
+
         set_state(proc, KACUJE);
     }  else {
         ESP_LOGI(my_id, "[LT:%llu] IMPREZA skończona! Czekam na REL od organizatora", proc->lamport_ts);
@@ -264,10 +289,19 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             break;
 
         case JESTEM_W_KOLEJCE:
+        // Urządzenie może dostać WELCOME będąc już w UMAWIAM_IMPREZE jeśli poprzedni
+        // organizator wysłał REL i nowy zdążył zebrać REQ-i nim tamten wyszedł ze stanu.
+        // W obu przypadkach obsługa WELCOME jest identyczna — reset cyklu i nowa grupa.
+        case UMAWIAM_IMPREZE:
             if (msg->header.type == MSG_WELCOME) {
                 ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_WELCOME od %d (organizator)", 
                          proc->lamport_ts, msg->header.from);
-                
+
+                // Reset zmiennych cyklu — zaczynamy nową imprezę z nową grupą
+                proc->hello_count = 0;
+                proc->hello_sent  = false;
+                memset(proc->received_deficits, 0, sizeof(proc->received_deficits));
+
                 memcpy(proc->participants, msg->payload.welcome.participants, sizeof(proc->participants));
                 for (int i = 0; i < CIRCLE_SIZE; i++) {
                     if (proc->participants[i] == msg->header.from) {
@@ -276,11 +310,12 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
                     }
                 }
                 set_state(proc, UMAWIAM_IMPREZE);
-            }
-            break;
+            } else if (msg->header.type == MSG_HELLO) {
+                // MSG_HELLO obsługujemy tylko będąc faktycznie w UMAWIAM_IMPREZE;
+                // jeśli nadal jesteśmy w JESTEM_W_KOLEJCE to wiadomość dotyczy
+                // innej grupy — ignorujemy.
+                if (proc->state != UMAWIAM_IMPREZE) break;
 
-        case UMAWIAM_IMPREZE:
-            if (msg->header.type == MSG_HELLO) {
                 proc->hello_count++;
                 ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_HELLO od %d (%u/%u)", 
                          proc->lamport_ts, msg->header.from, proc->hello_count, CIRCLE_SIZE - 1);
@@ -322,4 +357,3 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             break;
     }
 }
-

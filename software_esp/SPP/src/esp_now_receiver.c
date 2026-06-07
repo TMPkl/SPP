@@ -5,6 +5,7 @@
 #include "string.h"
 #include "mac_manager.h"
 #include "lamportTS.h"
+#include "messages.h"
 #include "freertos/queue.h"
 
 
@@ -41,7 +42,15 @@ void esp_now_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, 
         return;
     }
 
-    lamport_increment();
+    // Aktualizuj zegar Lamporta zgodnie z regułą: max(local, received) + 1.
+    // Wywołanie samego lamport_increment() (clock++) było błędem — ignorowało
+    // timestamp nadawcy, przez co zegar mógł cofnąć się względem sieci.
+    if (data_len >= (int)sizeof(msg_header_t)) {
+        const msg_header_t *hdr = (const msg_header_t *)data;
+        lamport_receive(hdr->ts);
+    } else {
+        lamport_increment();
+    }
 
     const uint8_t *mac_addr = recv_info->src_addr;
     ESP_LOGI(TAG, "Wiadomość od: %02X:%02X:%02X:%02X:%02X:%02X",

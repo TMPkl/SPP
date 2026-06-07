@@ -13,6 +13,7 @@
 #define QUEUE_SIZE          MAX_PROCESSES
 #define PARTY_DURATION_MS 5000
 #define MAX_KACOWANIE_MS 50000
+#define MIN_KACOWANIE_MS 10000
 
 typedef enum {
     KACUJE,   
@@ -55,7 +56,8 @@ typedef struct {
 
     SemaphoreHandle_t rel_semaphore;
     process_state_t state;  
-    
+    bool kac_in_progress;  
+
 } process_local_t;
 
 #endif // PROCESS_H
