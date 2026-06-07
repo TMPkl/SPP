@@ -31,6 +31,9 @@
 #ifndef REL_GRACE_PERIOD_MS
 #define REL_GRACE_PERIOD_MS 1500
 #endif
+#ifndef REQ_RETRY_MS
+#define REQ_RETRY_MS 2000
+#endif
 
 void set_state(process_local_t *proc, process_state_t new_state) {
     const char *state_names[] = {
@@ -68,6 +71,8 @@ void handle_kacuje(process_local_t *proc) {
     // mqueue_remove_participants po zakończeniu imprezy.
     proc->ack_count = 0;
     proc->request_sent = false;
+    proc->all_acks_received = false;
+    proc->acked_mask = 0;
     memset(proc->participants, 0, sizeof(proc->participants));
     proc->is_organizer = false;
     proc->hello_count = 0;
@@ -81,31 +86,47 @@ void handle_kacuje(process_local_t *proc) {
     set_state(proc, WYSYLAM_REQ);
 }
 
-void handle_wysylam_req(process_local_t *proc) {
-    // Wysyślij REQ tylko raz
-    if (proc->request_sent) {
-        return;  // Już wysłano, czekamy na ACK
-    }
-    
+static void send_req(process_local_t *proc) {
     espnow_msg_t msg = {
         .header = {
             .type = MSG_REQ,
             .from = proc->my_id,
-            .ts   = ++proc->lamport_ts,
+            .ts   = proc->request_ts,
         }
     };
-
-    ESP_LOGI(my_id, "[LT:%llu] WYSYLAM_REQ: Wysyłam prośbę do wszystkich", proc->lamport_ts);
     for (int i = 0; i < 256; i++) {
         esp_now_peer_info_t *peer = get_peer_by_id(i);
         if (peer == NULL) continue;
         esp_now_send(peer->peer_addr, (uint8_t *)&msg, sizeof(msg_header_t));
     }
-    
-    proc->request_sent = true;  // Zaznacz że wysłano
+    proc->req_sent_tick = xTaskGetTickCount();
+}
+
+void handle_wysylam_req(process_local_t *proc) {
+    if (!proc->request_sent) {
+        proc->request_ts = ++proc->lamport_ts;
+        ESP_LOGI(my_id, "[LT:%llu] WYSYLAM_REQ: Wysyłam prośbę do wszystkich", proc->lamport_ts);
+        send_req(proc);
+        proc->request_sent = true;
+        return;
+    }
+
+    // Retransmit jeśli nie zebrano wszystkich ACK w czasie REQ_RETRY_MS
+    if (!proc->all_acks_received &&
+        (xTaskGetTickCount() - proc->req_sent_tick) > pdMS_TO_TICKS(REQ_RETRY_MS)) {
+        ESP_LOGW(my_id, "[LT:%llu] WYSYLAM_REQ: brak ACK (%u/%d), retransmit REQ",
+                 proc->lamport_ts, proc->ack_count, MAX_PEERS - 1);
+        send_req(proc);
+    }
 }
 
 void handle_jestem_w_kolejce(process_local_t *proc) {
+    // Nie sprawdzaj pozycji zanim nie zebrałeś ACK od wszystkich.
+    // Bez tego flagi kolejka jest niestabilna — inne urządzenia mogą jeszcze
+    // nie mieć naszego wpisu, co prowadzi do sytuacji gdy dwa urządzenia
+    // jednocześnie widzą siebie na pozycji będącej wielokrotnością CIRCLE_SIZE.
+    if (!proc->all_acks_received) return;
+
     int my_pos = -1;
     for (int i = 0; i < proc->queue_size; i++) {
         if (proc->queue[i].mac_address == proc->my_id) {
@@ -199,6 +220,7 @@ void handle_impreza(process_local_t *proc) {
         ESP_LOGI(my_id, "[LT:%llu] Czekam na synchronizację uczestników po REL...", proc->lamport_ts);
         vTaskDelay(pdMS_TO_TICKS(REL_GRACE_PERIOD_MS));
 
+        mqueue_remove_participants(proc, proc->participants, CIRCLE_SIZE);
         set_state(proc, KACUJE);
     }  else {
         ESP_LOGI(my_id, "[LT:%llu] IMPREZA skończona! Czekam na REL od organizatora", proc->lamport_ts);
@@ -273,16 +295,20 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
     switch (proc->state) {
         case WYSYLAM_REQ:
             if (msg->header.type == MSG_ACK) {
+                uint8_t sender = msg->header.from;
+                if (sender < 16 && (proc->acked_mask & (1u << sender))) break; // już policzony
+                if (sender < 16) proc->acked_mask |= (1u << sender);
                 proc->ack_count++;
-                ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_ACK od %d (%u/%d)", 
-                         proc->lamport_ts, msg->header.from, proc->ack_count, MAX_PEERS - 1);
-                
+                ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_ACK od %d (%u/%d)",
+                         proc->lamport_ts, sender, proc->ack_count, MAX_PEERS - 1);
+
                 if (proc->ack_count == MAX_PEERS - 1) {
                     queue_entry_t entry = {
                         .mac_address = proc->my_id,
-                        .lamport_ts  = proc->lamport_ts,
+                        .lamport_ts  = proc->request_ts,
                     };
                     mqueue_insert(proc, &entry);
+                    proc->all_acks_received = true;
                     set_state(proc, JESTEM_W_KOLEJCE);
                 }
             }
@@ -343,13 +369,13 @@ void on_message(process_local_t *proc, espnow_msg_t *msg) {
             break;
 
         case IMPREZA:
-            if (msg->header.type == MSG_REL) {
-                ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_REL od organizatora %d, impreza się kończy", 
+            if (msg->header.type == MSG_REL && !proc->is_organizer) {
+                ESP_LOGI(my_id, "[LT:%llu] Otrzymano MSG_REL od organizatora %d, impreza się kończy",
                          proc->lamport_ts, msg->header.from);
-                
+
                 mqueue_remove_participants(proc, msg->payload.rel.participants, CIRCLE_SIZE);
                 set_state(proc, KACUJE);
-                xSemaphoreGive(proc->rel_semaphore); 
+                xSemaphoreGive(proc->rel_semaphore);
             }
             break;
 

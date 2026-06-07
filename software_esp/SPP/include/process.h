@@ -41,6 +41,9 @@ typedef struct {
      
     uint8_t ack_count;
     bool request_sent;
+    uint64_t request_ts;      // saved REQ lamport ts for retransmits
+    TickType_t req_sent_tick; // tick when REQ was last sent
+    uint16_t acked_mask;      // bit i set = peer with id i already ACKed this REQ
 
     uint8_t hello_count;
     bool hello_sent;
@@ -56,7 +59,8 @@ typedef struct {
 
     SemaphoreHandle_t rel_semaphore;
     process_state_t state;  
-    bool kac_in_progress;  
+    bool kac_in_progress; 
+    bool all_acks_received;
 
 } process_local_t;
 

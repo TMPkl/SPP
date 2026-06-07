@@ -4,6 +4,11 @@
 #include "mqueue.h"
 
 void mqueue_insert(process_local_t *proc, queue_entry_t *entry) {
+    // dedup: nie wstawiaj jeśli MAC już istnieje w kolejce
+    for (int i = 0; i < proc->queue_size; i++) {
+        if (proc->queue[i].mac_address == entry->mac_address) return;
+    }
+
     // znajdź miejsce do wstawienia (sortuj po ts, potem mac)
     int insert_pos = proc->queue_size;
     for (int i = 0; i < proc->queue_size; i++) {
