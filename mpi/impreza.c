@@ -25,10 +25,10 @@
 
 static int circle_size = 3; //nie patrzec na to 3, jest aby byla jakas wartosc inicjalizacji, i tak jest nadpisywana przez argument programu, wiec nie ma znaczenia, ale musi byc zainicjalizowana na jakas wartosc zeby program sie nie wyjebalil przy sprawdzaniu warunku czy jest organizatorem czy nie, bo to jest sprawdzane juz w mainie zanim circle_size zostanie nadpisane przez argument programu
 
-#define PARTY_MS         5000    // czas trwania imprezy 
+#define PARTY_MS         10000    // czas trwania imprezy 
 #define MIN_KAC_MS       5000    // min czas kacowania [ms]               
-#define MAX_KAC_MS       15000   // max czas kacowania [ms]                
-#define REQ_RETRY_MS     2000    // czas do retransmisji REQ [ms]          
+#define MAX_KAC_MS       10000   // max czas kacowania [ms]                
+#define REQ_RETRY_MS     1000000    // czas do retransmisji REQ [ms]          
 #define REL_GRACE_MS     500     // pauza organizatora po wysłaniu REL     
 #define TICK_MS          50      // czasy na tick, aby to też troszkę trwało          
 #define MAX_PARTIES      1000       // ile imprez zanim proces kończy pracę   
@@ -473,7 +473,7 @@ static void on_message(proc_t *p, const msg_t *m) {
     }
 
     /* Jeśli dostajemy jakąkolwiek inną wiadomość, ktoś już przeszedł
-     * przez barierę — zdejmujemy ją wcześniej żeby nie blokować. */
+     * przez barierę - zdejmujemy ją wcześniej żeby nie blokować. */
     if (!p->ready_to_kac) {
         LOG(p, "Zdejmuję barierę (odebrano wiadomość type=%d)", m->type);
         p->ready_to_kac = true;
@@ -523,7 +523,7 @@ static void on_message(proc_t *p, const msg_t *m) {
             }
             break;
 
-        /* MSG_WELCOME może dotrzeć w obu stanach — obsługa identyczna */
+        /* MSG_WELCOME może dotrzeć w obu stanach - obsługa identyczna */
         case JESTEM_W_KOLEJCE:
         case UMAWIAM_IMPREZE:
             if (m->type == MSG_WELCOME) {
@@ -561,7 +561,7 @@ static void on_message(proc_t *p, const msg_t *m) {
                             break;
                         }
                     }
-                    LOG(p, "Wszyscy wysłali HELLO — obliczam podział zasobów");
+                    LOG(p, "Wszyscy wysłali HELLO - obliczam podział zasobów");
                     disposition(p);
                     set_state(p, IMPREZA);
                 }
