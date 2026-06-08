@@ -430,8 +430,8 @@ static void handle_impreza(proc_t *p) {
 
         /* Krótka pauza — daje uczestnikom czas na przetworzenie REL
          * zanim organizator wróci do kolejki z nowym REQ */
-        usleep(REL_GRACE_MS * 1000);
         mqueue_remove(p, p->participants, circle_size);
+        usleep(REL_GRACE_MS * 1000);
 
     } else {
         /* Uczestnik czeka na REL od organizatora */
@@ -492,7 +492,7 @@ static void on_message(proc_t *p, const msg_t *m) {
 
     /* ---------- MSG_REL: każdy proces usuwa uczestników z kolejki ---------- */
     if (m->type == MSG_REL) {
-        LOG(p, "MSG_REL od P%d — usuwam uczestników z kolejki", m->from);
+       // LOG(p, "MSG_REL od P%d — usuwam uczestników z kolejki", m->from);
         mqueue_remove(p, m->participants, circle_size);
         if (p->state == IMPREZA && !p->is_organizer) {
             LOG(p, "MSG_REL od P%d — impreza się kończy", m->from);
