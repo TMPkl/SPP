@@ -45,8 +45,6 @@ typedef enum {
     MSG_HELLO   = 5,  // wymiana deficytów                           
 } msg_type_t;
 
-/
-
 /* Historyczny bilans zasobów danego procesu */
 typedef struct {
     uint8_t sep;        
@@ -280,10 +278,10 @@ static void disposition(proc_t *p) {
 }
 
 
-/* ============================================================
- * Handlery stanów (wszystkie nieblokujące — sprawdzają timery i
- * wracają natychmiast, jeśli jeszcze nie czas działać)
- * ============================================================ */
+/* 
+
+TUTAJ JEST TO BYLE STATE MACHINE ----- handlery wszyskich stanów
+*/
 
 static void handle_kacuje(proc_t *p) {
     if (!p->ready_to_kac) return;
@@ -492,6 +490,17 @@ static void on_message(proc_t *p, const msg_t *m) {
         return;
     }
 
+    /* ---------- MSG_REL: każdy proces usuwa uczestników z kolejki ---------- */
+    if (m->type == MSG_REL) {
+        LOG(p, "MSG_REL od P%d — usuwam uczestników z kolejki", m->from);
+        mqueue_remove(p, m->participants, circle_size);
+        if (p->state == IMPREZA && !p->is_organizer) {
+            LOG(p, "MSG_REL od P%d — impreza się kończy", m->from);
+            p->rel_received = true;
+        }
+        return;
+    }
+
     /* ---------- Obsługa zależna od stanu ---------- */
     switch (p->state) {
 
@@ -560,11 +569,6 @@ static void on_message(proc_t *p, const msg_t *m) {
             break;
 
         case IMPREZA:
-            if (m->type == MSG_REL && !p->is_organizer) {
-                LOG(p, "MSG_REL od P%d — impreza się kończy", m->from);
-                mqueue_remove(p, m->participants, circle_size);
-                p->rel_received = true;
-            }
             break;
 
         default:
